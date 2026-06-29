@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">🛡️ OpenGuardrails — Management Console</h1>
   <p align="center">
-    <strong>RBAC-secured web console for managing AI safety guards, validators, and endpoints.</strong>
+    <strong>Management console for the <a href="https://guardrailsai.com/guardrailsoss">Guardrails AI OSS</a> framework.</strong>
     <br/>
     Built on Vue 3 + PostgreSQL + Express — deploy anywhere with Docker.
   </p>
@@ -18,7 +18,12 @@
 
 ## What is OpenGuardrails?
 
-OpenGuardrails is an **AI safety guard management console** that lets you:
+OpenGuardrails is an **AI safety guard management console** based on the
+[Guardrails AI OSS](https://guardrailsai.com/guardrailsoss) framework. It provides
+a web interface to manage guards, validators, and AI endpoints — making AI safety
+guardrails accessible to teams without writing Python code.
+
+OpenGuardrails lets you:
 
 - 🛡️ **Browse 20 built-in validators** from the Guardrails ecosystem (toxicity, PII, prompt injection, regex, JSON validators & more)
 - ✏️ **Define custom validators** — regex, keyword, length, LLM-based, JSON Schema, or script
@@ -227,5 +232,5 @@ MIT — see [LICENSE](LICENSE) file.
 ---
 
 <p align="center">
-  <sub>Built for the <a href="https://github.com/guardrails-ai/guardrails">Guardrails AI</a> ecosystem. Not affiliated with Guardrails AI, Inc.</sub>
+  <sub>Based on the <a href="https://guardrailsai.com/guardrailsoss">Guardrails AI OSS</a> framework. This project is a community-built management console and is not affiliated with Guardrails AI, Inc.</sub>
 </p>
