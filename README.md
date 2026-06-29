@@ -33,6 +33,167 @@ OpenGuardrails lets you:
 - 🔐 **RBAC** — admin vs user roles with JWT auth and audit logging
 - 🚀 **Run anywhere** — Docker, Docker Compose, or Kubernetes
 
+## How It Works
+
+### Core Concepts
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        GUARD                                 │
+│  "Content Safety Check"                                      │
+│  guard_type: output  |  on_fail_action: filter               │
+│                                                              │
+│  ┌─────────────────────┐  ┌─────────────────────┐           │
+│  │    VALIDATOR #1      │  │    VALIDATOR #2      │  ...      │
+│  │  "Toxic Language"    │  │  "Detect PII"        │           │
+│  │  type: llm           │  │  type: regex          │           │
+│  │  fail: exception  ✕  │  │  fail: fix        ✓  │           │
+│  └─────────┬───────────┘  └─────────┬───────────┘           │
+│            │                        │                         │
+│            │    ┌───────────────────┘                        │
+│            ▼    ▼                                            │
+│  ┌──────────────────────────────────┐                       │
+│  │          RESULT                  │                       │
+│  │  passed: false                   │                       │
+│  │  "Toxic Language" → BLOCKED      │                       │
+│  │  "Detect PII"      → PASSED      │                       │
+│  └──────────────────────────────────┘                       │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Validation Flow
+
+```mermaid
+flowchart TD
+    A["🔤 AI Generates Text"] --> B["🛡️ Guard Receives Text"]
+    B --> C{"Loop over<br/>Validators"}
+    
+    C --> D["Validator 1<br/>(e.g. Toxic Language)"]
+    C --> E["Validator 2<br/>(e.g. Detect PII)"]
+    C --> F["Validator N<br/>(e.g. Regex Match)"]
+    
+    D --> D1{"Pass?"}
+    D1 -- "❌ Fail" --> D2["Action: exception, filter, fix, or reask"]
+    D1 -- "✅ Pass" --> D3["Continue"]
+    
+    E --> E1{"Pass?"}
+    E1 -- "❌ Fail" --> E2["Action: exception, filter, fix, or reask"]
+    E1 -- "✅ Pass" --> E3["Continue"]
+    
+    F --> F1{"Pass?"}
+    F1 -- "❌ Fail" --> F2["Action: exception, filter, fix, or reask"]
+    F1 -- "✅ Pass" --> F3["Continue"]
+    
+    D3 --> G["Aggregate Results"]
+    E3 --> G
+    F3 --> G
+    D2 --> G
+    E2 --> G
+    F2 --> G
+    
+    G --> H{"Guard<br/>on_fail?"}
+    H -- "exception" --> I["🚫 Throw error, stop pipeline"]
+    H -- "filter" --> J["✂️ Remove harmful content, return clean text"]
+    H -- "fix" --> K["🔧 Auto-correct, return fixed text"]
+    H -- "reask" --> L["🔄 Re-prompt LLM with correction hint"]
+    H -- "noop" --> M["⚠️ Log warning, pass through unchanged"]
+    
+    G --> N["📊 Log to validation_logs table"]
+```
+
+### Real Example: Customer Chatbot Guard
+
+```mermaid
+flowchart LR
+    subgraph Guard["🛡️ Guard: Customer Reply Validator"]
+        direction TB
+        V1["✅ Validator: Profanity Free<br/>regex: /bad|word/i<br/>on_fail: filter"]
+        V2["✅ Validator: Detect PII<br/>llm: check for emails/phones<br/>on_fail: exception"]
+        V3["✅ Validator: Competitor Check<br/>keyword: competitor names<br/>on_fail: reask"]
+    end
+    
+    Input["LLM Response:<br/>'Call our competitor<br/>Acme at john@acme.com<br/>you idiot!'"]
+    
+    Input --> Guard
+    Guard --> Result["Result: FAILED<br/><br/>• Profanity Free: FAIL → 'idiot' filtered ✂️<br/>• Detect PII: FAIL → email leaked, exception 🚫<br/>• Competitor Check: PASS ✓<br/><br/>Action: EXCEPTION (PII takes precedence)"]
+```
+
+### Data Model
+
+```mermaid
+erDiagram
+    USERS ||--o{ API_KEYS : owns
+    USERS ||--o{ GUARDS : creates
+    USERS ||--o{ AUDIT_LOGS : performs
+
+    AI_ENDPOINTS ||--o{ VALIDATION_LOGS : target
+
+    VALIDATORS ||--o{ GUARD_VALIDATORS : belongs_to
+    GUARDS ||--o{ GUARD_VALIDATORS : composed_of
+    GUARDS ||--o{ VALIDATION_LOGS : produces
+    
+    VALIDATOR_CATEGORIES ||--o{ VALIDATORS : categorizes
+
+    USERS {
+        uuid id PK
+        string email UK
+        string password_hash
+        string full_name
+        string role "admin|user"
+        boolean is_active
+    }
+
+    VALIDATORS {
+        uuid id PK
+        string name UK
+        string display_name
+        string description
+        string validation_type "regex|llm|script|keyword|length|json_schema"
+        string validation_code
+        jsonb parameters
+        string source "hub|custom"
+        boolean is_installed
+        boolean is_active
+    }
+
+    GUARDS {
+        uuid id PK
+        string name UK
+        string display_name
+        string guard_type "input|output|both"
+        string on_fail_action "exception|filter|fix|reask|noop"
+        uuid user_id FK
+    }
+
+    GUARD_VALIDATORS {
+        uuid guard_id FK
+        uuid validator_id FK
+        jsonb parameters
+        string on_fail_action
+        int order_index
+    }
+
+    AI_ENDPOINTS {
+        uuid id PK
+        string name UK
+        string provider "openai|anthropic|openai_compatible|anthropic_compatible"
+        string base_url
+        string default_model
+        boolean is_active
+    }
+
+    VALIDATION_LOGS {
+        uuid id PK
+        uuid guard_id FK
+        uuid endpoint_id FK
+        uuid user_id FK
+        boolean validation_passed
+        jsonb results
+        jsonb input_text
+        timestamp created_at
+    }
+```
+
 ## Quick Start (Docker)
 
 ### Prerequisites
