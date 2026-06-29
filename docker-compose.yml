@@ -1,0 +1,90 @@
+# ==========================================
+# OpenGuardrails — Local Docker Compose
+# ==========================================
+# Usage:
+#   docker compose up -d              # Start all services
+#   docker compose run server npm run migrate  # Run DB migrations (first time)
+#   docker compose run server npm run seed      # Seed demo data
+# ==========================================
+
+services:
+  # ---- PostgreSQL ----
+  postgres:
+    image: postgres:16-alpine
+    container_name: og-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openguardrails
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openguardrails"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---- Migration & Seed (run once, then exit) ----
+  migrate:
+    image: node:20-alpine
+    container_name: og-migrate
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/openguardrails
+    volumes:
+      - ./server:/app
+    entrypoint: ["sh", "-c"]
+    command: ["npm run migrate && npm run seed"]
+    restart: "no"
+
+  # ---- API Server ----
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: og-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/openguardrails
+      JWT_SECRET: openguardrails-jwt-secret-change-in-production
+      JWT_EXPIRES_IN: 24h
+      CORS_ORIGINS: "*"
+      LOG_LEVEL: info
+      MAX_REQUEST_SIZE_MB: 10
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---- Vue Client ----
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: og-client
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      BACKEND_SERVICE: server
+      BACKEND_PORT: 3000
+    ports:
+      - "8080:80"
+
+volumes:
+  pgdata:

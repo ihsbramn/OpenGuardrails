@@ -1,0 +1,556 @@
+# ==========================================
+# OpenGuardrails — Kubernetes Manifests
+# ==========================================
+# Apply:
+#   kubectl apply -f k8s/namespace.yaml    # if using a fresh cluster
+#   kubectl apply -f k8s/deployment.yaml
+#
+# Required: A running Ingress Controller (nginx, traefik, etc.)
+# ==========================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openguardrails
+
+---
+# ==========================================
+# ConfigMap — Non-sensitive configuration
+# ==========================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: og-config
+  namespace: openguardrails
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  JWT_EXPIRES_IN: "24h"
+  CORS_ORIGINS: "*"
+  LOG_LEVEL: "info"
+  MAX_REQUEST_SIZE_MB: "10"
+  DB_POOL_MIN: "2"
+  DB_POOL_MAX: "10"
+  DB_POOL_IDLE_TIMEOUT_MS: "30000"
+  DB_POOL_CONNECTION_TIMEOUT_MS: "5000"
+  # PostgreSQL connection (host uses Service DNS name)
+  DATABASE_URL: "postgresql://$(DB_USER):$(DB_PASSWORD)@og-postgres.openguardrails.svc.cluster.local:5432/openguardrails"
+
+---
+# ==========================================
+# Secret — Sensitive values (use sealed-secrets or external secret manager in prod)
+# ==========================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: og-secret
+  namespace: openguardrails
+type: Opaque
+stringData:
+  DB_USER: "postgres"
+  DB_PASSWORD: "change-me-in-production"
+  JWT_SECRET: "change-this-to-a-random-64-character-string-in-production"
+  ADMIN_EMAIL: "admin@openguardrails.com"
+  ADMIN_PASSWORD: "admin123"
+  ADMIN_FULL_NAME: "Administrator"
+  DEMO_EMAIL: "user@openguardrails.com"
+  DEMO_PASSWORD: "demo123"
+  DEMO_FULL_NAME: "Demo User"
+
+---
+# ==========================================
+# PostgreSQL — StatefulSet + Service
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: og-postgres
+  namespace: openguardrails
+  labels:
+    app: og-postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app: og-postgres
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: og-postgres-pvc
+  namespace: openguardrails
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName: your-storage-class  # uncomment for specific provisioners
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: og-postgres
+  namespace: openguardrails
+spec:
+  serviceName: og-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: og-postgres
+  template:
+    metadata:
+      labels:
+        app: og-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_DB
+              value: openguardrails
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_PASSWORD
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - openguardrails
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+                - -d
+                - openguardrails
+            initialDelaySeconds: 5
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: pgdata
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+# ==========================================
+# DB Migration Job — runs schema + seed once
+# ==========================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: og-migrate
+  namespace: openguardrails
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  ttlSecondsAfterFinished: 120
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: Never
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h og-postgres -U $(DB_USER) -d openguardrails; do
+                echo "Waiting for PostgreSQL..."
+                sleep 3
+              done
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_USER
+      containers:
+        - name: migrate
+          image: openguardrails-server:latest
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command:
+            - sh
+            - -c
+            - |
+              node src/config/migrate.js && node src/config/seed.js
+          envFrom:
+            - configMapRef:
+                name: og-config
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://$(DB_USER):$(DB_PASSWORD)@og-postgres.openguardrails.svc.cluster.local:5432/openguardrails"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: JWT_SECRET
+            - name: ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: ADMIN_EMAIL
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: ADMIN_PASSWORD
+            - name: ADMIN_FULL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: ADMIN_FULL_NAME
+            - name: DEMO_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DEMO_EMAIL
+            - name: DEMO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DEMO_PASSWORD
+            - name: DEMO_FULL_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DEMO_FULL_NAME
+
+---
+# ==========================================
+# API Server — Deployment + Service
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: og-server
+  namespace: openguardrails
+  labels:
+    app: og-server
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app: og-server
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: og-server
+  namespace: openguardrails
+  labels:
+    app: og-server
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: og-server
+  template:
+    metadata:
+      labels:
+        app: og-server
+    spec:
+      # Co-locate with DB during migration (optional affinity)
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: server
+          image: openguardrails-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            # From ConfigMap
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: NODE_ENV
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: PORT
+            - name: JWT_EXPIRES_IN
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: JWT_EXPIRES_IN
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: CORS_ORIGINS
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: LOG_LEVEL
+            - name: MAX_REQUEST_SIZE_MB
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: MAX_REQUEST_SIZE_MB
+            - name: DB_POOL_MIN
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: DB_POOL_MIN
+            - name: DB_POOL_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: DB_POOL_MAX
+            - name: DB_POOL_IDLE_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: DB_POOL_IDLE_TIMEOUT_MS
+            - name: DB_POOL_CONNECTION_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: og-config
+                  key: DB_POOL_CONNECTION_TIMEOUT_MS
+            # From Secret
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: JWT_SECRET
+            # Built from secret references
+            - name: DATABASE_URL
+              value: "postgresql://$(DB_USER):$(DB_PASSWORD)@og-postgres.openguardrails.svc.cluster.local:5432/openguardrails"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: og-secret
+                  key: DB_PASSWORD
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/health/ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+# ==========================================
+# Vue Client — Deployment + Service
+# ==========================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: og-client
+  namespace: openguardrails
+  labels:
+    app: og-client
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http
+  selector:
+    app: og-client
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: og-client
+  namespace: openguardrails
+  labels:
+    app: og-client
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: og-client
+  template:
+    metadata:
+      labels:
+        app: og-client
+    spec:
+      containers:
+        - name: client
+          image: openguardrails-client:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+              name: http
+          env:
+            - name: BACKEND_SERVICE
+              value: og-server.openguardrails.svc.cluster.local
+            - name: BACKEND_PORT
+              value: "3000"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+# ==========================================
+# Ingress — External traffic routing
+# ==========================================
+# Assumes an Ingress Controller (nginx-ingress, traefik, etc.) is installed.
+# Update the host to your domain.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: og-ingress
+  namespace: openguardrails
+  annotations:
+    # Nginx ingress annotations (adjust for your controller)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Enable TLS redirect
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  # Uncomment for TLS
+  # tls:
+  #   - hosts:
+  #       - openguardrails.example.com
+  #     secretName: og-tls-secret
+  rules:
+    - host: openguardrails.example.com   # <-- CHANGE TO YOUR DOMAIN
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: og-client
+                port:
+                  number: 80
+
+---
+# ==========================================
+# HorizontalPodAutoscaler (optional)
+# ==========================================
+# kubectl apply -f k8s/hpa.yaml  (if metrics-server installed)
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: og-server-hpa
+  namespace: openguardrails
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: og-server
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
