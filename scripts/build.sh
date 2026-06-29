@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REGISTRY="${REGISTRY:-docker.io/ihsbramn}"
-VERSION="${VERSION:-0.1.0-alpha}"
+VERSION="${VERSION:-0.2.0-alpha}"
 TAG="${TAG:-${VERSION}}"
 PLATFORM="${PLATFORM:-linux/amd64,linux/arm64}"
 

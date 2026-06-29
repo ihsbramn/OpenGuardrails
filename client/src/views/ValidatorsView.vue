@@ -5,12 +5,7 @@
         <h2>Validators</h2>
         <div class="page-subtitle">Browse Guardrails Hub validators or create your own custom checks</div>
       </div>
-      <div class="btn-group">
-        <button class="btn btn-outline" @click="showCatalog = !showCatalog">
-          📚 {{ showCatalog ? 'Hide' : 'Show' }} Catalog
-        </button>
-        <button class="btn btn-primary" @click="openCustomCreate">+ Create Custom</button>
-      </div>
+      <button class="btn btn-primary" @click="openCustomCreate">+ Create Custom</button>
     </div>
 
     <div class="page-body">
@@ -97,9 +92,14 @@
               <button v-if="!v.is_installed" class="btn btn-primary btn-sm" @click="installValidator(v)">
                 Install
               </button>
-              <button v-else class="btn btn-outline btn-sm" @click="installValidator(v)">
-                Reinstall
-              </button>
+              <template v-else>
+                <button v-if="v.custom_copy_id" class="btn btn-primary btn-sm" @click="editInstalledValidator(v)">
+                  ✏️ Edit
+                </button>
+                <button class="btn btn-ghost btn-sm" @click="installValidator(v)">
+                  Reinstall
+                </button>
+              </template>
             </div>
           </div>
         </div>
@@ -107,6 +107,107 @@
 
       <!-- === CUSTOM TAB === -->
       <div v-if="tab === 'custom' && !loading">
+        <!-- Guide Card -->
+        <div class="card" style="margin-bottom:20px">
+          <div class="guide-header" @click="showGuide = !showGuide" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center">
+            <div>
+              <strong style="font-size:15px">📖 How to Create Custom Validators</strong>
+              <span style="font-size:12px;color:var(--color-text-dim);margin-left:8px">— click to {{ showGuide ? 'collapse' : 'expand' }}</span>
+            </div>
+            <span style="font-size:18px;color:var(--color-text-dim);transition:transform 0.2s" :style="{transform: showGuide ? 'rotate(180deg)' : ''}">▼</span>
+          </div>
+          <div v-if="showGuide" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--color-border)">
+            <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:16px;line-height:1.6">
+              Custom validators let you define your own safety, quality, and formatting checks. Choose a validation type below, fill in the fields, and click <strong>Create</strong>. After creation, add the validator to a <strong>Guard</strong> to enforce it on AI outputs.
+            </p>
+
+            <div class="guide-types">
+              <div class="guide-type">
+                <div class="guide-type-header">
+                  <span class="badge badge-info">regex</span>
+                  <strong>Regex Pattern Match</strong>
+                </div>
+                <div class="guide-type-body">
+                  <p>Match (or reject) text against a regular expression. Use for pattern-based checks.</p>
+                  <pre>/badword|curse|slur/i</pre>
+                  <small>Matches any text containing "badword", "curse", or "slur" (case-insensitive).</small>
+                </div>
+              </div>
+
+              <div class="guide-type">
+                <div class="guide-type-header">
+                  <span class="badge badge-warning">keyword</span>
+                  <strong>Keyword Match</strong>
+                </div>
+                <div class="guide-type-body">
+                  <p>Check for the presence (or absence) of specific keywords. Great for blacklists and whitelists.</p>
+                  <pre>competitor_name, secret_project, internal_only</pre>
+                  <small>Comma-separated list. The validator checks if any keyword appears in the output.</small>
+                </div>
+              </div>
+
+              <div class="guide-type">
+                <div class="guide-type-header">
+                  <span class="badge badge-success">length</span>
+                  <strong>Length Check</strong>
+                </div>
+                <div class="guide-type-body">
+                  <p>Enforce minimum and/or maximum character/word/token limits on AI output.</p>
+                  <pre>{"min": 50, "max": 2000, "unit": "characters"}</pre>
+                  <small>JSON config. Supported units: <code>characters</code>, <code>words</code>, <code>tokens</code>.</small>
+                </div>
+              </div>
+
+              <div class="guide-type">
+                <div class="guide-type-header">
+                  <span class="badge badge-danger">json_schema</span>
+                  <strong>JSON Schema</strong>
+                </div>
+                <div class="guide-type-body">
+                  <p>Validate that the AI output is valid JSON matching a specific schema. Ideal for structured outputs.</p>
+                  <pre>{"type":"object","required":["name","email"],"properties":{"name":{"type":"string"},"email":{"type":"string","format":"email"}}}</pre>
+                  <small>Standard JSON Schema draft-07. The output must parse as JSON and pass schema validation.</small>
+                </div>
+              </div>
+
+              <div class="guide-type">
+                <div class="guide-type-header">
+                  <span class="badge badge-default">llm</span>
+                  <strong>LLM-Based Check</strong>
+                </div>
+                <div class="guide-type-body">
+                  <p>Use another LLM call to evaluate the output. Describe what to check in natural language.</p>
+                  <pre>The output must not contain any personal identifiable information (PII) such as names, addresses, phone numbers, or email addresses.</pre>
+                  <small>The system sends the AI output + your rule description to an LLM for evaluation. <em>Requires a configured AI endpoint.</em></small>
+                </div>
+              </div>
+
+              <div class="guide-type">
+                <div class="guide-type-header">
+                  <span class="badge badge-default">script</span>
+                  <strong>Custom Script</strong>
+                </div>
+                <div class="guide-type-body">
+                  <p>Write a JavaScript function for fully custom logic. Receives the output text and parameters.</p>
+                  <pre>function validate(text, params) {
+  const containsLink = /https?:\/\/[^\s]+/i.test(text);
+  return {
+    passed: params.allowLinks ? true : !containsLink,
+    message: containsLink ? "Output contains a URL" : "OK",
+    score: containsLink ? 0 : 1
+  };
+}</pre>
+                  <small>Function signature: <code>validate(text, params) → {{ passed, message, score }}</code>. Params come from the Parameters JSON array.</small>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:16px;padding:12px;background:var(--color-bg);border-radius:8px;font-size:13px;color:var(--color-text-dim);line-height:1.6">
+              <strong>💡 Next step:</strong> After creating your validator, go to <strong>Guards</strong> → create a Guard → add your validator to enforce it on AI outputs. Configure <em>on-fail actions</em> like <code>block</code>, <code>warn</code>, or <code>redact</code> to control what happens when validation fails.
+            </div>
+          </div>
+        </div>
+
         <div v-if="!validators.length" class="empty-state">
           <div class="empty-icon">✏️</div>
           <h3>No Custom Validators Yet</h3>
@@ -292,7 +393,7 @@ const saving = ref(false);
 const search = ref('');
 const categoryFilter = ref('');
 const installedFilter = ref('');
-const showCatalog = ref(false);
+const showGuide = ref(false);
 
 // Hub detail
 const detailValidator = ref(null);
@@ -455,11 +556,37 @@ async function saveCustomValidator() {
 
 async function installValidator(v) {
   try {
-    await api.post(`/validators/${v.id}/install`);
-    alert(`Validator "${v.display_name}" installed!`);
+    const { data } = await api.post(`/validators/${v.id}/install`);
+    // Show message with custom copy info
+    alert(data.message || `Validator "${v.display_name}" installed!`);
+    // Reload to get updated is_installed and custom_copy_id
     await load();
   } catch (err) {
     alert(err.response?.data?.error || 'Install failed');
+  }
+}
+
+async function editInstalledValidator(v) {
+  // v.custom_copy_id is the editable custom copy — fetch it and open the edit form
+  if (!v.custom_copy_id) return;
+  try {
+    const { data } = await api.get(`/validators/${v.custom_copy_id}`);
+    editingValidator.value = data;
+    form.value = {
+      name: data.name,
+      display_name: data.display_name,
+      description: data.description || '',
+      category_id: data.category_id || '',
+      new_category_name: '',
+      validation_type: data.validation_type || 'regex',
+      validation_code: data.validation_code || '',
+      parameters_str: JSON.stringify(parseJson(data.parameters), null, 2),
+      tags_str: parseTags(data.tags).join(', '),
+      is_active: data.is_active,
+    };
+    showCustomForm.value = true;
+  } catch (err) {
+    console.error(err);
   }
 }
 
@@ -609,5 +736,47 @@ onMounted(async () => {
 
 .tag-dim {
   opacity: 0.6;
+}
+
+.guide-header { padding: 4px 0; user-select: none; }
+.guide-header:hover strong { color: var(--color-primary-hover); }
+.guide-types { display: flex; flex-direction: column; gap: 12px; }
+.guide-type {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.guide-type-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-surface-hover);
+  font-size: 14px;
+}
+.guide-type-body {
+  padding: 12px 14px;
+}
+.guide-type-body p {
+  font-size: 13px;
+  color: var(--color-text-dim);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+.guide-type-body pre {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-bottom: 6px;
+}
+.guide-type-body small {
+  font-size: 11px;
+  color: var(--color-text-dim);
+  line-height: 1.5;
 }
 </style>

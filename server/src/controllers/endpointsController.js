@@ -1,6 +1,115 @@
 const db = require('../config/database');
 const { AppError, pgError, validate } = require('../utils/errors');
 
+/**
+ * Fetch available models from an OpenAI-compatible /models endpoint.
+ * Returns structured result with parsed model IDs.
+ */
+async function fetchModels(base_url, api_key) {
+  // Normalize base URL — strip trailing slash and remove /v1 suffix for models endpoint
+  let modelsUrl = base_url.replace(/\/+$/, '');
+  if (!modelsUrl.endsWith('/models')) {
+    modelsUrl += '/models';
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (api_key) {
+      headers['Authorization'] = `Bearer ${api_key}`;
+    }
+
+    const resp = await fetch(modelsUrl, { headers, signal: controller.signal });
+    clearTimeout(timeout);
+
+    // Read body as text first to handle non-JSON error responses
+    const bodyText = (await resp.text()).trim();
+    let raw;
+    try {
+      raw = JSON.parse(bodyText);
+    } catch {
+      // Non-JSON response — return the raw text as the message
+      return {
+        success: false,
+        status: resp.status,
+        data: [],
+        message: `HTTP ${resp.status}: ${bodyText.substring(0, 1000)}`,
+      };
+    }
+
+    const modelIds = extractModelIds(raw, base_url);
+
+    if (!resp.ok) {
+      return {
+        success: false,
+        status: resp.status,
+        data: modelIds,
+        message: `HTTP ${resp.status}: ${JSON.stringify(raw).substring(0, 1000)}`,
+      };
+    }
+
+    return {
+      success: true,
+      status: resp.status,
+      data: modelIds,
+      message: modelIds.length
+        ? `Successfully found ${modelIds.length} model(s)`
+        : 'Connected successfully but no models returned',
+    };
+  } catch (err) {
+    clearTimeout(timeout);
+    return {
+      success: false,
+      status: err.name === 'AbortError' ? 'timeout' : 'error',
+      data: [],
+      message: err.name === 'AbortError'
+        ? `Request timed out (8s) — cannot reach ${modelsUrl}`
+        : `Connection failed: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Extract model IDs from various API response formats:
+ *   OpenAI:        { data: [{ id: "gpt-4o", ... }] }
+ *   Anthropic:     may not have /models, returns 404 or custom format
+ *   Ollama:        { models: [{ name: "llama3:8b", ... }] }
+ *   Generic array: [{ id: "...", name: "..." }]
+ */
+function extractModelIds(data) {
+  if (!data) return [];
+
+  // OpenAI format: { object: "list", data: [...] }
+  if (Array.isArray(data.data)) {
+    return data.data.map(m => ({
+      id: m.id || m.name || m.model || 'unknown',
+      owned_by: m.owned_by,
+      created: m.created,
+    }));
+  }
+
+  // Ollama format: { models: [...] }
+  if (Array.isArray(data.models)) {
+    return data.models.map(m => ({
+      id: m.name || m.id || m.model || 'unknown',
+      owned_by: m.details?.family,
+    }));
+  }
+
+  // Array directly
+  if (Array.isArray(data)) {
+    return data.map(m => ({
+      id: m.id || m.name || m.model || 'unknown',
+      owned_by: m.owned_by,
+    }));
+  }
+
+  // Fallback: return whatever we got
+  return [{ id: JSON.stringify(data).substring(0, 80) }];
+}
+
 const endpointsController = {
   async list(req, res, next) {
     try {
@@ -97,38 +206,42 @@ const endpointsController = {
       const ep = await db.query('SELECT * FROM ai_endpoints WHERE id=$1', [req.params.id]);
       if (ep.rows.length === 0) return res.status(404).json({ error: 'Endpoint not found', code: 'NOT_FOUND' });
 
-      const { name, provider, base_url } = ep.rows[0];
-      // Basic connectivity check — try fetching models list
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const { name, provider, base_url, api_key_encrypted } = ep.rows[0];
+      const api_key = api_key_encrypted || req.body.api_key || '';
 
-      try {
-        const resp = await fetch(`${base_url}/models`, {
-          headers: { 'Authorization': `Bearer ${ep.rows[0].api_key_encrypted || ''}` },
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        const data = await resp.json();
-        res.json({
-          success: resp.ok,
-          status: resp.status,
-          endpoint: name,
-          provider,
-          models_found: data?.data?.length || data?.models?.length || 0,
-          message: resp.ok ? 'Connection successful' : `HTTP ${resp.status}: ${JSON.stringify(data).substring(0, 200)}`,
-        });
-      } catch (fetchErr) {
-        clearTimeout(timeout);
-        res.json({
-          success: false,
-          status: fetchErr.name === 'AbortError' ? 'timeout' : 'error',
-          endpoint: name,
-          provider,
-          message: fetchErr.name === 'AbortError'
-            ? `Connection timed out (8s) — check that "${base_url}" is reachable`
-            : `Cannot reach ${base_url}: ${fetchErr.message}`,
-        });
-      }
+      const { success, status, data, message } = await fetchModels(base_url, api_key);
+
+      res.json({
+        success,
+        status,
+        endpoint: name,
+        provider,
+        models: data || [],
+        models_count: data?.length || 0,
+        message,
+      });
+    } catch (err) { next(err); }
+  },
+
+  async testModels(req, res, next) {
+    try {
+      const { base_url, api_key } = req.body;
+
+      const v = validate([
+        { field: 'base_url', value: base_url, rules: [{ required: true }, { isUrl: true }] },
+      ]);
+      if (v) return res.status(400).json(v.toJSON());
+
+      const { success, status, data, message } = await fetchModels(base_url, api_key || '');
+
+      res.json({
+        success,
+        status,
+        base_url,
+        models: data || [],
+        models_count: data?.length || 0,
+        message,
+      });
     } catch (err) { next(err); }
   },
 };

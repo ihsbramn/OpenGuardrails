@@ -8,6 +8,6 @@ router.use(authenticate);
 router.get('/', ctrl.list);
 router.post('/', ctrl.create);
 router.post('/:id/revoke', ctrl.revoke);
-router.delete('/:id', ctrl.revoke);
+router.delete('/:id', ctrl.remove);
 
 module.exports = router;

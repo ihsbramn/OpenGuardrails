@@ -49,6 +49,26 @@ const apiKeysController = {
       res.json({ message: 'API key revoked' });
     } catch (err) { next(err); }
   },
+
+  async remove(req, res, next) {
+    try {
+      // Only allow hard-delete if the key is already revoked
+      const existing = await db.query('SELECT is_active FROM api_keys WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+      if (existing.rows.length === 0) {
+        return res.status(404).json({ error: 'API key not found', code: 'NOT_FOUND' });
+      }
+      if (existing.rows[0].is_active) {
+        return res.status(400).json({
+          error: 'Cannot delete an active API key. Revoke it first.',
+          code: 'KEY_ACTIVE',
+          help: 'Revoke the key first, then delete it.',
+        });
+      }
+
+      await db.query('DELETE FROM api_keys WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id]);
+      res.json({ message: 'API key permanently deleted' });
+    } catch (err) { next(err); }
+  },
 };
 
 module.exports = apiKeysController;

@@ -1,10 +1,13 @@
 # ==========================================
-# OpenGuardrails — Local Docker Compose
+# OpenGuardrails — Docker Compose
 # ==========================================
+# Images pulled from Docker Hub — no local build needed.
+#
 # Usage:
 #   docker compose up -d              # Start all services
-#   docker compose run server npm run migrate  # Run DB migrations (first time)
-#   docker compose run server npm run seed      # Seed demo data
+#   docker compose pull               # Update to latest images
+#
+# For local development (build from source), swap image: for build: blocks.
 # ==========================================
 
 services:
@@ -45,9 +48,7 @@ services:
 
   # ---- API Server ----
   server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    image: docker.io/ihsbramn/openguardrails-server:0.2.0-alpha
     container_name: og-server
     restart: unless-stopped
     depends_on:
@@ -72,9 +73,7 @@ services:
 
   # ---- Vue Client ----
   client:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
+    image: docker.io/ihsbramn/openguardrails-client:0.2.0-alpha
     container_name: og-client
     restart: unless-stopped
     depends_on:

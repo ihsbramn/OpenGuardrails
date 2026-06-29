@@ -17,29 +17,23 @@
           <div class="stat-label">Active Guards</div>
         </div>
         <div class="card stat-card stat-green">
-          <div class="stat-icon">✅</div>
+          <div class="stat-icon">🛡️</div>
+          <div class="stat-value">{{ data.stats?.failed_validations || 0 }}</div>
+          <div class="stat-label">Threats Blocked</div>
+        </div>
+        <div class="card stat-card stat-blue">
+          <div class="stat-icon">📊</div>
           <div class="stat-value">{{ data.stats?.pass_rate || 0 }}%</div>
-          <div class="stat-label">Validation Pass Rate</div>
+          <div class="stat-label">Clean Traffic Rate</div>
         </div>
         <div class="card stat-card stat-yellow">
           <div class="stat-icon">🔌</div>
           <div class="stat-value">{{ data.stats?.active_endpoints || 0 }}</div>
           <div class="stat-label">Active Endpoints</div>
         </div>
-        <div class="card stat-card stat-red">
-          <div class="stat-icon">⚠️</div>
-          <div class="stat-value">{{ data.stats?.failed_validations || 0 }}</div>
-          <div class="stat-label">Failed Validations</div>
-        </div>
-      </div>
-
-      <div class="grid-2" style="margin-bottom:24px">
-        <div class="card">
-          <div class="stat-value" style="font-size:20px">{{ data.stats?.validations_24h || 0 }}</div>
-          <div class="stat-label">Validations (last 24h)</div>
-        </div>
-        <div class="card">
-          <div class="stat-value" style="font-size:20px">{{ data.stats?.total_validators || 0 }}</div>
+        <div class="card stat-card">
+          <div class="stat-icon">🧩</div>
+          <div class="stat-value">{{ data.stats?.total_validators || 0 }}</div>
           <div class="stat-label">Total Validators</div>
         </div>
       </div>
@@ -49,16 +43,16 @@
         <h3 class="section-title">Top Guards by Usage</h3>
         <table class="data-table" v-if="data.top_guards?.length">
           <thead>
-            <tr><th>Guard Name</th><th>Total Validations</th><th>Failures</th><th>Success Rate</th></tr>
+            <tr><th>Guard Name</th><th>Total Validations</th><th>Blocked</th><th>Detection Rate</th></tr>
           </thead>
           <tbody>
             <tr v-for="g in data.top_guards" :key="g.name">
               <td><strong>{{ g.name }}</strong></td>
               <td>{{ g.validation_count }}</td>
-              <td><span class="badge badge-danger">{{ g.failures }}</span></td>
+              <td><span class="badge badge-blocked">{{ g.failures }}</span></td>
               <td>
-                <span :class="['badge', g.validation_count > 0 && ((g.validation_count - g.failures) / g.validation_count * 100) > 90 ? 'badge-success' : 'badge-warning']">
-                  {{ g.validation_count > 0 ? Math.round((g.validation_count - g.failures) / g.validation_count * 100) : 0 }}%
+                <span :class="['badge', g.validation_count > 0 && (g.failures / g.validation_count * 100) > 0 ? 'badge-blocked' : 'badge-default']">
+                  {{ g.validation_count > 0 ? Math.round(g.failures / g.validation_count * 100) : 0 }}%
                 </span>
               </td>
             </tr>

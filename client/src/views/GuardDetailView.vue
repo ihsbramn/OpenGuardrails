@@ -31,18 +31,57 @@
           </div>
 
           <div class="card">
-            <h3 class="section-title">API Usage</h3>
-            <div style="margin-bottom:12px;font-size:13px;color:var(--color-text-dim)">
-              Route your OpenAI SDK to this guard:
+            <h3 class="section-title">🔗 Proxy Usage</h3>
+            <p style="font-size:13px;color:var(--color-text-dim);margin-bottom:12px;line-height:1.5">
+              Use this guard as a <strong>transparent proxy</strong> — all AI requests pass through OpenGuardrails, get validated, and only reach your users if they pass.
+            </p>
+
+            <div style="margin-bottom:14px">
+              <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:4px">Proxy URL</div>
+              <div class="code-block" style="position:relative;padding-right:60px">
+                <code style="font-size:13px">POST /api/proxy/v1/chat/completions?guard_id={{ guard.id }}</code>
+                <button class="btn btn-primary btn-sm" style="position:absolute;top:8px;right:10px" @click="copyProxyUrl">📋 Copy</button>
+              </div>
             </div>
-            <div class="code-block">
-              <div># Python Client</div>
-              <div style="color:var(--color-primary-hover)">from</div> openai <span style="color:var(--color-primary-hover)">import</span> OpenAI
-              <br/>
-              client = OpenAI(
-              <br/>&nbsp;&nbsp;base_url=<span style="color:var(--color-success)">"http://localhost:8000/guards/{{ guard.name }}/openai/v1/"</span>
-              <br/>)
-              <button class="copy-btn" style="float:right" @click="copyCode">Copy</button>
+
+            <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:8px">Guard ID</div>
+            <div class="code-block" style="display:flex;align-items:center;gap:8px;position:relative;padding-right:60px">
+              <code style="font-size:12px;word-break:break-all">{{ guard.id }}</code>
+              <button class="btn btn-primary btn-sm" style="position:absolute;top:8px;right:10px" @click="copyGuardId">📋 Copy</button>
+            </div>
+
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--color-border)">
+              <strong style="font-size:13px">Quick examples</strong>
+
+              <div style="margin-top:10px;font-size:12px;color:var(--color-text-dim)">curl</div>
+              <div class="code-block" style="margin-top:4px">
+                <code style="font-size:12px">curl -X POST "http://localhost:3000/api/proxy/v1/chat/completions?guard_id={{ guard.id }}" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'</code>
+              </div>
+
+              <div style="margin-top:10px;font-size:12px;color:var(--color-text-dim)">Python (OpenAI SDK)</div>
+              <div class="code-block" style="margin-top:4px">
+                <code style="font-size:12px">from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:3000/api/proxy/v1?guard_id={{ guard.id }}",
+    api_key="YOUR_GUARDRAILS_TOKEN"
+)
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role":"user","content":"Hello"}]
+)</code>
+              </div>
+
+              <div style="margin-top:10px;font-size:12px;color:var(--color-text-dim)">JavaScript (fetch)</div>
+              <div class="code-block" style="margin-top:4px">
+                <code style="font-size:12px">fetch("http://localhost:3000/api/proxy/v1/chat/completions?guard_id={{ guard.id }}", {
+  headers: { Authorization: "Bearer YOUR_TOKEN", "Content-Type": "application/json" },
+  body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "Hello" }] })
+})</code>
+              </div>
             </div>
           </div>
         </div>
@@ -71,12 +110,12 @@
         <div class="card">
           <h3 class="section-title">Recent Validations</h3>
           <div v-if="validationResult" style="margin-bottom:16px">
-            <div :class="['alert', validationResult.validation_passed ? 'alert-success' : 'alert-error']">
-              {{ validationResult.validation_passed ? '✅ Validation PASSED' : '❌ Validation FAILED' }}
-              ({{ validationResult.checks_passed }}/{{ validationResult.total_checks }} checks passed)
+            <div :class="['alert', validationResult.validation_passed ? 'alert-info' : 'alert-blocked']">
+              {{ validationResult.validation_passed ? '✅ All Clean — request allowed through' : '🛡️ Threat Blocked — guardrail prevented unsafe response' }}
+              ({{ validationResult.total_checks - validationResult.checks_passed }}/{{ validationResult.total_checks }} validators triggered)
             </div>
             <div v-for="r in validationResult.results" :key="r.validator_id" style="padding:8px 0;border-bottom:1px solid var(--color-border)">
-              <span :class="['badge', r.passed ? 'badge-success' : 'badge-danger']">{{ r.passed ? 'PASS' : 'FAIL' }}</span>
+              <span :class="['badge', !r.passed ? 'badge-blocked' : 'badge-allowed']">{{ r.passed ? 'CLEAN' : 'BLOCKED' }}</span>
               <strong style="margin-left:8px">{{ r.name }}</strong>
               <span style="color:var(--color-text-dim);margin-left:8px;font-size:12px">{{ r.message }}</span>
               <span style="float:right;font-size:12px">Score: {{ Math.round(r.score) }}%</span>
@@ -151,10 +190,13 @@ async function runValidation() {
   }
 }
 
-function copyCode() {
-  const code = `client = OpenAI(\n  base_url="http://localhost:8000/guards/${guard.value.name}/openai/v1/"\n)`;
-  navigator.clipboard.writeText(code);
-  alert('Copied to clipboard!');
+function copyProxyUrl() {
+  const url = `POST /api/proxy/v1/chat/completions?guard_id=${guard.value.id}`;
+  navigator.clipboard.writeText(url).then(() => alert('Proxy URL copied!'));
+}
+
+function copyGuardId() {
+  navigator.clipboard.writeText(guard.value.id).then(() => alert('Guard ID copied!'));
 }
 
 function formatDate(d) {

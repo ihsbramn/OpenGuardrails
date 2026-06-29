@@ -6,6 +6,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 router.use(authenticate);
 
 router.get('/', ctrl.list);
+router.post('/test-models', ctrl.testModels);
 router.get('/:id', ctrl.get);
 router.post('/', authorize('admin'), ctrl.create);
 router.put('/:id', authorize('admin'), ctrl.update);

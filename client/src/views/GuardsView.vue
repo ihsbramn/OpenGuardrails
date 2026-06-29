@@ -50,6 +50,7 @@
           <thead>
             <tr>
               <th>Name</th>
+              <th>Guard ID</th>
               <th>Type</th>
               <th>Validators</th>
               <th>On Fail</th>
@@ -63,6 +64,12 @@
               <td>
                 <strong>{{ g.display_name || g.name }}</strong>
                 <div v-if="g.description" style="font-size:12px;color:var(--color-text-dim)">{{ g.description.substring(0,80) }}{{ g.description.length > 80 ? '...' : '' }}</div>
+              </td>
+              <td>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <code style="font-size:11px;color:var(--color-text-dim);white-space:nowrap">{{ g.id.substring(0, 8) }}...</code>
+                  <button class="btn btn-xs btn-ghost" @click="copyId(g.id)" title="Copy Guard ID" style="padding:2px 4px;font-size:12px;line-height:1">📋</button>
+                </div>
               </td>
               <td>
                 <span :class="['badge', g.guard_type === 'input' ? 'badge-info' : g.guard_type === 'output' ? 'badge-success' : 'badge-warning']">
@@ -233,7 +240,7 @@ async function loadMeta() {
     ]);
     stats.value = statsRes.data;
     endpoints.value = epRes.data;
-    allValidators.value = valRes.data;
+    allValidators.value = valRes.data?.data || valRes.data || [];
   } catch (err) {
     console.error(err);
   }
@@ -308,6 +315,14 @@ async function deleteGuard(g) {
   } catch (err) {
     alert(err.response?.data?.error || 'Delete failed');
   }
+}
+
+function copyId(id) {
+  navigator.clipboard.writeText(id).then(() => {
+    alert('Guard ID copied to clipboard!');
+  }).catch(() => {
+    prompt('Copy this Guard ID:', id);
+  });
 }
 
 onMounted(async () => {

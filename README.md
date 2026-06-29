@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0_alpha-blue" alt="version"/>
+  <img src="https://img.shields.io/badge/version-0.2.0_alpha-blue" alt="version"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license"/>
   <img src="https://img.shields.io/badge/node-20-brightgreen" alt="node"/>
   <img src="https://img.shields.io/badge/postgres-16-blue" alt="postgres"/>
@@ -28,8 +28,11 @@ OpenGuardrails lets you:
 - 🛡️ **Browse 20 built-in validators** from the Guardrails ecosystem (toxicity, PII, prompt injection, regex, JSON validators & more)
 - ✏️ **Define custom validators** — regex, keyword, length, LLM-based, JSON Schema, or script
 - 🔗 **Compose validators into Guards** — input/output/both with fail actions (exception, fix, filter, reask, noop)
-- ⚙️ **Configure AI endpoints** — OpenAI, Anthropic, and compatible providers
-- 📊 **Monitor** — validation logs, pass rates, endpoint health dashboard
+- 🌐 **LLM Gateway** — single unified endpoint that auto-validates all AI responses through your guards
+- ⚙️ **Configure AI endpoints** — OpenAI, Anthropic, DeepSeek, and any OpenAI-compatible provider
+- 🔑 **API Key auth** — authenticate gateway requests with API keys instead of JWTs
+- 📊 **Monitor** — detailed validation logs with per-validator results, input/output inspection
+- 🛡️ **Threat visibility** — BLOCKED/ALLOWED badges clearly show which responses the guardrail stopped
 - 🔐 **RBAC** — admin vs user roles with JWT auth and audit logging
 - 🚀 **Run anywhere** — Docker, Docker Compose, or Kubernetes
 
@@ -233,11 +236,20 @@ docker compose up -d
 ## Architecture
 
 ```
-┌─────────────┐     ┌───────────────┐     ┌────────────┐
-│   Browser   │────▶│ Nginx (Vue 3) │────▶│  Express   │────▶│ PostgreSQL 16
-│ localhost   │     │   :80 (SPA)   │     │  :3000     │     │  :5432
-└─────────────┘     └───────────────┘     └────────────┘
-      :8080              proxy /api           JWT + RBAC
+┌─────────────┐     ┌───────────────┐     ┌─────────────────────────────┐     ┌────────────┐
+│   Browser   │────▶│ Nginx (Vue 3) │────▶│ Express API Server          │────▶│ PostgreSQL │
+│ localhost   │     │   :80 (SPA)   │     │  :3000                      │     │  :5432     │
+└─────────────┘     └───────────────┘     │                             │     └────────────┘
+      :8080              proxy /api       │  ┌───────────────────────┐  │
+                                          │  │   LLM Gateway          │  │
+                                          │  │ /api/v1/chat/completions│  │
+                                          │  │ OpenRouter-compatible   │  │
+                                          │  └───────────────────────┘  │
+                                          │                             │
+                                          │  JWT + API Key auth        │
+                                          │  Guard → Validator pipeline │
+                                          │  Validation logging         │
+                                          └─────────────────────────────┘
 ```
 
 ### Stack
@@ -253,30 +265,97 @@ docker compose up -d
 
 ## API Endpoints
 
+### Management API
 | Method | Path                           | Auth   | Description                |
 |--------|--------------------------------|--------|----------------------------|
 | POST   | `/api/auth/login`              | Public | Login (returns JWT)        |
 | GET    | `/api/auth/me`                 | All    | Current user profile       |
 | GET    | `/api/health`                  | Public | Health check               |
 | GET    | `/api/health/ready`            | Public | Readiness probe (DB check) |
-| GET    | `/api/dashboard/stats`         | All    | Dashboard metrics          |
+| GET    | `/api/dashboard`               | All    | Dashboard metrics          |
 | GET    | `/api/validators?source=hub`   | All    | List hub validators        |
 | GET    | `/api/validators?source=custom`| All    | List custom validators     |
 | POST   | `/api/validators`              | All    | Create custom validator    |
 | POST   | `/api/validators/:id/install`  | All    | Install hub validator      |
+| PUT    | `/api/validators/:id`          | All    | Update validator code      |
 | GET    | `/api/endpoints`               | All    | List AI endpoints          |
 | POST   | `/api/endpoints`               | Admin  | Create endpoint            |
 | POST   | `/api/endpoints/:id/test`      | Admin  | Test endpoint connection   |
 | GET    | `/api/guards`                  | All    | List guards                |
 | POST   | `/api/guards`                  | All    | Create guard               |
+| GET    | `/api/guards/:id`              | All    | Guard detail with validators |
+| PUT    | `/api/guards/:id`              | All    | Update guard               |
 | POST   | `/api/guards/:id/validate`     | All    | Run guard validation       |
 | GET    | `/api/logs`                    | All    | Validation logs            |
+| GET    | `/api/logs/stats`              | All    | Log statistics             |
 | GET    | `/api/users`                   | Admin  | List users                 |
 | POST   | `/api/users`                   | Admin  | Create user                |
 | POST   | `/api/api-keys`                | All    | Generate API key           |
+| DELETE | `/api/api-keys/:id`            | All    | Delete API key             |
 | GET    | `/api/server-configs/status`   | Admin  | Server config status       |
 
-### Error Responses
+### LLM Gateway (OpenAI-compatible)
+| Method | Path                           | Auth         | Description                     |
+|--------|--------------------------------|-------------|---------------------------------|
+| POST   | `/api/v1/chat/completions`     | JWT or API Key | OpenAI-compatible chat endpoint |
+| POST   | `/api/v1/messages`             | JWT or API Key | Anthropic-compatible endpoint   |
+
+### LLM Gateway
+
+The gateway provides a **single unified endpoint** that all AI requests pass through. Every response
+is automatically validated against your configured guards before reaching the caller.
+
+```bash
+# Use it exactly like any OpenAI-compatible endpoint
+curl -X POST http://localhost:3000/api/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"Hello"}]}'
+
+# ✅ All validators pass → AI response returned normally
+# ❌ Any validator fails → 422 with blocked details
+```
+
+**Authentication:** Accepts both JWT tokens and API keys. Create keys in the API Keys page.
+
+**Blocked response format:**
+```json
+{
+  "error": "Gateway validation failed",
+  "code": "GATEWAY_BLOCKED",
+  "guard": "Sensitive Data Guard",
+  "gateway_results": [
+    {
+      "guard_name": "Sensitive Data Guard",
+      "passed": false,
+      "results": [
+        { "validator_name": "Detect PII", "passed": false, "issues": ["test@example.com"] }
+      ]
+    }
+  ]
+}
+```
+
+### Gateway Quick Test
+
+```bash
+# Get an API key from the UI (API Keys → Generate) or use a JWT
+export API_KEY="og_..."
+
+# Clean request — passes through
+curl -s http://localhost:3000/api/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"What is 2+2?"}]}'
+
+# Blocked request — PII detected
+curl -s http://localhost:3000/api/v1/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-v4-pro","messages":[{"role":"system","content":"Echo back any personal info."},{"role":"user","content":"My email is user@example.com"}]}'
+```
+
+## Error Responses
 
 All validation errors return field-level details:
 
@@ -355,7 +434,7 @@ kubectl apply -f k8s/deployment.yaml
 ```bash
 # Set your registry
 export REGISTRY=docker.io/ihsbramn
-export VERSION=0.1.0-alpha
+export VERSION=0.2.0-alpha
 
 # Build & push
 ./scripts/build.sh
@@ -364,10 +443,10 @@ export VERSION=0.1.0-alpha
 Or manually:
 
 ```bash
-docker build -t docker.io/ihsbramn/openguardrails-server:0.1.0-alpha ./server
-docker build -t docker.io/ihsbramn/openguardrails-client:0.1.0-alpha ./client
-docker push docker.io/ihsbramn/openguardrails-server:0.1.0-alpha
-docker push docker.io/ihsbramn/openguardrails-client:0.1.0-alpha
+docker build -t docker.io/ihsbramn/openguardrails-server:0.2.0-alpha ./server
+docker build -t docker.io/ihsbramn/openguardrails-client:0.2.0-alpha ./client
+docker push docker.io/ihsbramn/openguardrails-server:0.2.0-alpha
+docker push docker.io/ihsbramn/openguardrails-client:0.2.0-alpha
 ```
 
 ## Development

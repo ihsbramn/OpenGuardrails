@@ -12,7 +12,7 @@
       <div v-if="newKey" class="alert alert-success" style="margin-bottom:16px">
         <strong>🔑 New API Key Created!</strong> Copy it now — you won't see it again.
         <div class="code-block" style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
-          <code>{{ newKey.key }}</code>
+          <code>{{ newKey.api_key }}</code>
           <button class="btn btn-primary btn-sm" @click="copyKey">Copy</button>
         </div>
       </div>
@@ -49,6 +49,7 @@
             </td>
             <td>
               <button v-if="key.is_active" class="btn btn-danger btn-sm" @click="revokeKey(key)">Revoke</button>
+              <button v-else class="btn btn-danger btn-sm" @click="deleteKey(key)">Delete</button>
             </td>
           </tr>
         </tbody>
@@ -143,15 +144,25 @@ async function generateKey() {
 async function revokeKey(key) {
   if (!confirm(`Revoke API key "${key.name}"?`)) return;
   try {
-    await api.delete(`/api-keys/${key.id}`);
+    await api.post(`/api-keys/${key.id}/revoke`);
     await load();
   } catch (err) {
     alert(err.response?.data?.error || 'Revoke failed');
   }
 }
 
+async function deleteKey(key) {
+  if (!confirm(`Permanently delete revoked key "${key.name}"? This cannot be undone.`)) return;
+  try {
+    await api.delete(`/api-keys/${key.id}`);
+    await load();
+  } catch (err) {
+    alert(err.response?.data?.help || err.response?.data?.error || 'Delete failed');
+  }
+}
+
 function copyKey() {
-  navigator.clipboard.writeText(newKey.value.key);
+  navigator.clipboard.writeText(newKey.value.api_key);
   alert('API key copied to clipboard!');
 }
 

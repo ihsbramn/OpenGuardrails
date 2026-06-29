@@ -13,6 +13,8 @@ const logRoutes = require('./routes/logs');
 const serverConfigRoutes = require('./routes/serverConfig');
 const dashboardRoutes = require('./routes/dashboard');
 const apiKeyRoutes = require('./routes/apiKeys');
+const proxyRoutes = require('./routes/proxy');
+const gatewayRoutes = require('./routes/gateway');
 const { auditMiddleware } = require('./middleware/audit');
 
 const app = express();
@@ -61,6 +63,8 @@ app.use('/api/logs', logRoutes);
 app.use('/api/server-configs', serverConfigRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
+app.use('/api/proxy', proxyRoutes);
+app.use('/api', gatewayRoutes);
 
 // ---- 404 ----
 app.use((req, res) => {

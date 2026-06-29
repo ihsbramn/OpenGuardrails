@@ -40,7 +40,9 @@
             <td>
               <div class="btn-group">
                 <button class="btn btn-secondary btn-sm" @click="editEndpoint(ep)">Edit</button>
-                <button class="btn btn-secondary btn-sm" @click="testEndpoint(ep)">Test</button>
+                <button class="btn btn-secondary btn-sm" :disabled="testingEpId === ep.id" @click="testEndpoint(ep)">
+                  {{ testingEpId === ep.id ? 'Testing...' : 'Test' }}
+                </button>
                 <button v-if="auth.isAdmin" class="btn btn-danger btn-sm" @click="deleteEndpoint(ep)">Delete</button>
               </div>
             </td>
@@ -84,7 +86,24 @@
           </div>
           <div class="form-group">
             <label class="form-label">Base URL *</label>
-            <input v-model="form.base_url" class="form-input" placeholder="https://api.openai.com/v1" required />
+            <div style="display:flex;gap:8px">
+              <input v-model="form.base_url" class="form-input" placeholder="https://api.openai.com/v1" required style="flex:1" />
+              <button type="button" class="btn btn-secondary" @click="testModels" :disabled="testingModels">
+                {{ testingModels ? 'Testing...' : '🧪 Test Models' }}
+              </button>
+            </div>
+            <div v-if="testResult !== null" :class="['test-result', testResult.success ? 'test-success' : 'test-error']">
+              <div class="test-result-header">
+                <strong>{{ testResult.success ? '✅' : '❌' }} {{ testResult.message }}</strong>
+                <button class="modal-close" style="font-size:16px" @click="testResult = null">&times;</button>
+              </div>
+              <div v-if="testResult.models?.length" class="test-models-list">
+                <div v-for="m in testResult.models" :key="m.id" class="test-model-item">
+                  <span class="model-id" @click="quickSelect(m.id)">{{ m.id }}</span>
+                  <span v-if="m.owned_by" class="model-owner">{{ m.owned_by }}</span>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">API Key</label>
@@ -110,6 +129,32 @@
         </form>
       </div>
     </div>
+    <!-- Test Result Modal -->
+    <div class="modal-overlay" v-if="listTestResult !== null" @click.self="listTestResult = null">
+      <div class="modal slide-up" style="max-width:520px">
+        <div class="modal-header">
+          <h3>Test: {{ listTestResult.endpoint || listTestResult.base_url }}</h3>
+          <button class="modal-close" @click="listTestResult = null">&times;</button>
+        </div>
+        <div :class="['test-result', listTestResult.success ? 'test-success' : 'test-error']" style="border-radius:0">
+          <div class="test-result-header">
+            <strong>{{ listTestResult.success ? '✅' : '❌' }} {{ listTestResult.message }}</strong>
+            <span v-if="listTestResult.models_count" class="badge" :class="listTestResult.success ? 'badge-success' : 'badge-default'">
+              {{ listTestResult.models_count }} model(s)
+            </span>
+          </div>
+          <div v-if="listTestResult.models?.length" class="test-models-list" style="max-height:300px">
+            <div v-for="m in listTestResult.models" :key="m.id" class="test-model-item">
+              <span class="model-id" style="cursor:default">{{ m.id }}</span>
+              <span v-if="m.owned_by" class="model-owner">{{ m.owned_by }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="listTestResult = null">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -124,6 +169,10 @@ const loading = ref(true);
 const saving = ref(false);
 const showCreate = ref(false);
 const editingEndpoint = ref(null);
+const testingModels = ref(false);
+const testResult = ref(null);
+const testingEpId = ref(null);
+const listTestResult = ref(null);
 const form = ref({ name: '', provider: 'openai', base_url: '', api_key: '', default_model: '', available_models: '[]', is_active: true });
 
 async function load() {
@@ -145,6 +194,7 @@ function resetForm() {
 function closeModal() {
   showCreate.value = false;
   editingEndpoint.value = null;
+  testResult.value = null;
   resetForm();
 }
 
@@ -183,11 +233,21 @@ async function saveEndpoint() {
 }
 
 async function testEndpoint(ep) {
+  testingEpId.value = ep.id;
+  listTestResult.value = null;
   try {
-    await api.post(`/endpoints/${ep.id}/test`);
-    alert(`Endpoint "${ep.name}" configuration is valid.`);
+    const { data } = await api.post(`/endpoints/${ep.id}/test`);
+    listTestResult.value = data;
   } catch (err) {
-    alert('Test failed: ' + (err.response?.data?.error || err.message));
+    listTestResult.value = {
+      success: false,
+      endpoint: ep.name,
+      message: err.response?.data?.error || err.message || 'Test failed',
+      models: [],
+      models_count: 0,
+    };
+  } finally {
+    testingEpId.value = null;
   }
 }
 
@@ -198,6 +258,47 @@ async function deleteEndpoint(ep) {
     await load();
   } catch (err) {
     alert(err.response?.data?.error || 'Delete failed');
+  }
+}
+
+async function testModels() {
+  if (!form.value.base_url) {
+    alert('Enter a Base URL first');
+    return;
+  }
+  testingModels.value = true;
+  testResult.value = null;
+  try {
+    const { data } = await api.post('/endpoints/test-models', {
+      base_url: form.value.base_url,
+      api_key: form.value.api_key,
+    });
+    testResult.value = data;
+  } catch (err) {
+    testResult.value = {
+      success: false,
+      message: err.response?.data?.error || err.message || 'Test failed',
+      models: [],
+    };
+  } finally {
+    testingModels.value = false;
+  }
+}
+
+function quickSelect(modelId) {
+  // Add model to available_models array
+  try {
+    const models = JSON.parse(form.value.available_models || '[]');
+    if (!models.includes(modelId)) {
+      models.push(modelId);
+      form.value.available_models = JSON.stringify(models);
+    }
+  } catch {
+    form.value.available_models = JSON.stringify([modelId]);
+  }
+  // Also set as default model if empty
+  if (!form.value.default_model) {
+    form.value.default_model = modelId;
   }
 }
 

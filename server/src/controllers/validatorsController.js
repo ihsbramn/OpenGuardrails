@@ -7,10 +7,12 @@ const validatorsController = {
       const { category, installed, search, source, limit = 200, offset = 0 } = req.query;
       let query = `
         SELECT v.*, vc.name as category_name, vc.icon as category_icon,
-               u.full_name as created_by_name
+               u.full_name as created_by_name,
+               cc.id as custom_copy_id
         FROM validators v
         LEFT JOIN validator_categories vc ON v.category_id = vc.id
         LEFT JOIN users u ON v.created_by = u.id
+        LEFT JOIN validators cc ON cc.installed_from = v.id AND cc.source = 'custom' AND cc.is_active = true
         WHERE v.is_active = true
       `;
       const params = [];
@@ -22,7 +24,8 @@ const validatorsController = {
       if (source === 'hub') { query += ` AND v.source = 'hub'`; }
       else if (source === 'custom') { query += ` AND v.source = 'custom'`; }
       if (search) {
-        query += ` AND (v.name ILIKE $${idx} OR v.display_name ILIKE $${idx} OR v.description ILIKE $${idx} OR v.hub_uri ILIKE $${idx})`;
+        const searchIdx = idx++;
+        query += ` AND (v.name ILIKE $${searchIdx} OR v.display_name ILIKE $${searchIdx} OR v.description ILIKE $${searchIdx} OR v.hub_uri ILIKE $${searchIdx})`;
         params.push(`%${search}%`);
       }
 
@@ -50,10 +53,12 @@ const validatorsController = {
     try {
       const result = await db.query(
         `SELECT v.*, vc.name as category_name, vc.icon as category_icon,
-                u.full_name as created_by_name
+                u.full_name as created_by_name,
+                cc.id as custom_copy_id
          FROM validators v
          LEFT JOIN validator_categories vc ON v.category_id = vc.id
          LEFT JOIN users u ON v.created_by = u.id
+         LEFT JOIN validators cc ON cc.installed_from = v.id AND cc.source = 'custom' AND cc.is_active = true
          WHERE v.id = $1`,
         [req.params.id]
       );
@@ -168,11 +173,88 @@ const validatorsController = {
   },
 
   async install(req, res, next) {
+    const client = await db.pool.connect();
     try {
-      const result = await db.query(`UPDATE validators SET is_installed=true, updated_at=NOW() WHERE id=$1 RETURNING *`, [req.params.id]);
-      if (result.rows.length === 0) return res.status(404).json({ error: 'Validator not found', code: 'NOT_FOUND' });
-      res.json({ message: 'Validator installed', validator: result.rows[0] });
-    } catch (err) { next(err); }
+      await client.query('BEGIN');
+
+      const source = await client.query('SELECT * FROM validators WHERE id=$1', [req.params.id]);
+      if (source.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Validator not found', code: 'NOT_FOUND' });
+      }
+
+      const v = source.rows[0];
+
+      if (v.source === 'hub') {
+        // Check if a custom copy already exists
+        const existing = await client.query(
+          `SELECT * FROM validators WHERE installed_from=$1 AND source='custom' AND is_active=true`,
+          [v.id]
+        );
+
+        if (existing.rows.length > 0) {
+          // Already has a custom copy — mark it installed again and return it
+          await client.query(
+            `UPDATE validators SET is_installed=true, is_active=true, updated_at=NOW() WHERE id=$1`,
+            [existing.rows[0].id]
+          );
+          await client.query(
+            `UPDATE validators SET is_installed=true, updated_at=NOW() WHERE id=$1`,
+            [v.id]
+          );
+          await client.query('COMMIT');
+          return res.json({
+            message: 'Validator reinstalled — your custom copy is ready for editing.',
+            validator: existing.rows[0],
+            custom_copy_id: existing.rows[0].id,
+          });
+        }
+
+        // Create a new custom copy that the user can edit
+        const copySuffix = `${Date.now()}`;
+        const copy = await client.query(
+          `INSERT INTO validators
+           (hub_uri, name, display_name, description, category_id, source,
+            validation_type, validation_code, parameters, on_fail_options, tags,
+            is_installed, is_active, created_by, installed_from)
+           SELECT CONCAT('custom://', name, '_', $3::text),
+                  CONCAT(name, '_', $3::text),
+                  CONCAT(display_name, ' (custom)'),
+                  description, category_id, 'custom',
+                  validation_type, validation_code, parameters, on_fail_options, tags,
+                  true, true, $2, id
+           FROM validators WHERE id=$1
+           RETURNING *`,
+          [v.id, req.user.id, copySuffix]
+        );
+
+        // Mark the hub original as installed
+        await client.query(
+          `UPDATE validators SET is_installed=true, updated_at=NOW() WHERE id=$1`,
+          [v.id]
+        );
+
+        await client.query('COMMIT');
+        res.status(201).json({
+          message: 'Validator installed. A customizable copy was created — you can now edit its parameters and code.',
+          validator: copy.rows[0],
+          custom_copy_id: copy.rows[0].id,
+        });
+      } else {
+        // Custom validator — just toggle installed
+        await client.query(
+          `UPDATE validators SET is_installed=true, updated_at=NOW() WHERE id=$1 RETURNING *`,
+          [v.id]
+        );
+        await client.query('COMMIT');
+        res.json({ message: 'Validator reinstalled', validator: v });
+      }
+    } catch (err) {
+      await client.query('ROLLBACK');
+      next(err);
+    } finally {
+      client.release();
+    }
   },
 
   async listCategories(req, res, next) {
