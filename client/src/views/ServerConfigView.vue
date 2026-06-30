@@ -142,8 +142,13 @@ curl -X POST "http://localhost:3000/api/proxy/v1/chat/completions?guard_id=GUARD
             <div style="font-size:13px;color:var(--color-text-dim);margin-bottom:8px">
               Single unified endpoint — all AI requests pass through selected guards automatically
             </div>
-            <div :class="['badge badge-lg', gatewayEnabled ? 'badge-success' : 'badge-default']" style="font-size:13px;padding:6px 14px">
-              {{ gatewayEnabled ? '● Enabled' : '○ Disabled' }}
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <span :class="['badge badge-sm', gatewayOpenAIEnabled ? 'badge-success' : 'badge-default']" style="font-size:12px;padding:4px 10px">
+                {{ gatewayOpenAIEnabled ? '●' : '○' }} OpenAI
+              </span>
+              <span :class="['badge badge-sm', gatewayAnthropicEnabled ? 'badge-success' : 'badge-default']" style="font-size:12px;padding:4px 10px">
+                {{ gatewayAnthropicEnabled ? '●' : '○' }} Anthropic
+              </span>
             </div>
           </div>
           <button class="btn btn-primary btn-sm" @click="showGatewayConfig = !showGatewayConfig">
@@ -245,26 +250,39 @@ const resp = await client.chat.completions.create({
 
         <!-- Gateway Config Panel (expandable) -->
         <div v-if="showGatewayConfig" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--color-border)">
-          <div class="form-group">
-            <label class="form-label">Enable Gateway</label>
-            <label class="toggle" style="display:block;margin-top:8px">
-              <input type="checkbox" v-model="gatewayEnabled" />
-              <span class="toggle-slider"></span>
-            </label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px">
+            <!-- OpenAI Toggle -->
+            <div style="padding:16px;background:var(--color-bg);border-radius:8px;border:1px solid var(--color-border)">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <div style="font-weight:600;font-size:14px">🔵 OpenAI Compatible</div>
+                  <div style="font-size:11px;color:var(--color-text-dim);margin-top:2px">/v1/chat/completions</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" v-model="gatewayOpenAIEnabled" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Anthropic Toggle -->
+            <div style="padding:16px;background:var(--color-bg);border-radius:8px;border:1px solid var(--color-border)">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <div>
+                  <div style="font-weight:600;font-size:14px">🟠 Anthropic Compatible</div>
+                  <div style="font-size:11px;color:var(--color-text-dim);margin-top:2px">/v1/messages</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" v-model="gatewayAnthropicEnabled" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Gateway Mode</label>
-            <select v-model="gatewayMode" class="form-select" :disabled="!gatewayEnabled">
-              <option value="openai">OpenAI Compatible</option>
-              <option value="anthropic">Anthropic Compatible</option>
-            </select>
-            <small style="color:var(--color-text-dim);font-size:11px;line-height:1.5">
-              Determines request/response format. OpenAI uses <code>/v1/chat/completions</code>, Anthropic uses <code>/v1/messages</code>
-            </small>
-          </div>
+
           <div class="form-group">
             <label class="form-label">Select Guards (all responses pass through these)</label>
-            <select v-model="selectedGuards" class="form-select" multiple style="min-height:140px" :disabled="!gatewayEnabled">
+            <select v-model="selectedGuards" class="form-select" multiple style="min-height:140px" :disabled="!gatewayAnyEnabled">
               <option v-for="g in allGuards" :key="g.id" :value="g.id" :disabled="!g.endpoint_id">
                 {{ g.display_name || g.name }}
                 <template v-if="!g.endpoint_id">— no endpoint configured</template>
@@ -276,7 +294,7 @@ const resp = await client.chat.completions.create({
             </small>
           </div>
           <div v-if="savingGateway" style="font-size:12px;color:var(--color-text-dim);margin-top:8px">Saving...</div>
-          <button class="btn btn-primary" style="margin-top:16px" @click="saveGatewaySettings" :disabled="savingGateway || !gatewayEnabled">
+          <button class="btn btn-primary" style="margin-top:16px" @click="saveGatewaySettings" :disabled="savingGateway">
             {{ savingGateway ? 'Saving...' : '💾 Save Gateway Configuration' }}
           </button>
         </div>
@@ -397,7 +415,7 @@ const resp = await client.chat.completions.create({
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
 
@@ -419,6 +437,10 @@ const savingGateway = ref(false);
 const activeConfigId = ref(null);
 
 const gatewayUrl = ref('http://localhost:3000/v1');
+
+// Derived: gateway is "enabled" if any mode is on
+const gatewayEnabled = computed(() => gatewayOpenAIEnabled.value || gatewayAnthropicEnabled.value);
+const gatewayAnyEnabled = computed(() => gatewayOpenAIEnabled.value || gatewayAnthropicEnabled.value);
 
 const form = ref({
   name: '', host: '0.0.0.0', port: 8000, log_level: 'info',
