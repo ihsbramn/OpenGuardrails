@@ -49,10 +49,10 @@
             <tr v-for="g in data.top_guards" :key="g.name">
               <td><strong>{{ g.name }}</strong></td>
               <td>{{ g.validation_count }}</td>
-              <td><span class="badge badge-blocked">{{ g.failures }}</span></td>
+              <td><span class="badge badge-blocked">{{ g.blocked }}</span></td>
               <td>
-                <span :class="['badge', g.validation_count > 0 && (g.failures / g.validation_count * 100) > 0 ? 'badge-blocked' : 'badge-default']">
-                  {{ g.validation_count > 0 ? Math.round(g.failures / g.validation_count * 100) : 0 }}%
+                <span :class="['badge', g.validation_count > 0 && (g.blocked / g.validation_count * 100) > 0 ? 'badge-blocked' : 'badge-default']">
+                  {{ g.validation_count > 0 ? Math.round(g.blocked / g.validation_count * 100) : 0 }}%
                 </span>
               </td>
             </tr>
