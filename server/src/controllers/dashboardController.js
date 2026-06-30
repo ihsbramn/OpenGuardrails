@@ -12,17 +12,17 @@ const dashboardController = {
           (SELECT COUNT(*)::int FROM validators WHERE is_installed = true) as installed_validators,
           (SELECT COUNT(*)::int FROM guards WHERE is_active = true) as active_guards,
           (SELECT COUNT(*)::int FROM validation_logs) as total_validations,
-          (SELECT COUNT(*)::int FROM validation_logs WHERE validation_passed = false) as failed_validations,
+          (SELECT COUNT(*)::int FROM validation_logs WHERE validation_passed = false) as threats_blocked,
           (SELECT COUNT(*)::int FROM validation_logs WHERE created_at >= NOW() - INTERVAL '24 hours') as validations_24h,
           (SELECT COALESCE(ROUND(
             (SELECT COUNT(*)::numeric FROM validation_logs WHERE validation_passed = true) /
             NULLIF((SELECT COUNT(*)::numeric FROM validation_logs), 0) * 100, 1
-          ), 0)) as pass_rate
+          ), 0)) as clean_traffic_rate
       `);
 
       const topGuards = await db.query(`
         SELECT g.name, COUNT(vl.id)::int as validation_count,
-               COUNT(*) FILTER (WHERE vl.validation_passed = false)::int as failures
+               COUNT(*) FILTER (WHERE vl.validation_passed = false)::int as blocked
         FROM validation_logs vl
         JOIN guards g ON vl.guard_id = g.id
         GROUP BY g.name

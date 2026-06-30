@@ -18,12 +18,12 @@
         </div>
         <div class="card stat-card stat-green">
           <div class="stat-icon">🛡️</div>
-          <div class="stat-value">{{ data.stats?.failed_validations || 0 }}</div>
+          <div class="stat-value">{{ data.stats?.threats_blocked || 0 }}</div>
           <div class="stat-label">Threats Blocked</div>
         </div>
         <div class="card stat-card stat-blue">
           <div class="stat-icon">📊</div>
-          <div class="stat-value">{{ data.stats?.pass_rate || 0 }}%</div>
+          <div class="stat-value">{{ data.stats?.clean_traffic_rate || 0 }}%</div>
           <div class="stat-label">Clean Traffic Rate</div>
         </div>
         <div class="card stat-card stat-yellow">

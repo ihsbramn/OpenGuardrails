@@ -1,12 +1,59 @@
 const db = require('../config/database');
 const { AppError, pgError, validate } = require('../utils/errors');
 
+/**
+ * Execute a validator against text.
+ * Mirrors the logic in gatewayController.js for consistency.
+ */
+function executeValidatorRun(v, text) {
+  try {
+    switch (v.validation_type) {
+      case 'regex': {
+        if (!v.validation_code) return { passed: true, message: 'No pattern defined' };
+        const match = v.validation_code.match(/^\/(.+)\/([gimsu]*)$/);
+        if (!match) return { passed: true, message: 'Invalid regex format' };
+        const re = new RegExp(match[1], match[2]);
+        const matches = text.match(re);
+        if (matches) {
+          return { passed: false, message: `Matched prohibited pattern: ${matches[0]}`, issues: matches.slice(0, 5) };
+        }
+        return { passed: true, message: 'No pattern match' };
+      }
+      case 'keyword': {
+        if (!v.validation_code) return { passed: true, message: 'No keywords defined' };
+        const keywords = v.validation_code.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+        const lower = text.toLowerCase();
+        const found = keywords.filter(k => lower.includes(k));
+        if (found.length) return { passed: false, message: `Matched keywords: ${found.join(', ')}`, issues: found };
+        return { passed: true, message: 'No keyword match' };
+      }
+      case 'length': {
+        if (!v.validation_code) return { passed: true, message: 'No length config' };
+        const cfg = JSON.parse(v.validation_code);
+        if (cfg.min && text.length < cfg.min) return { passed: false, message: `Too short (${text.length} < ${cfg.min})` };
+        if (cfg.max && text.length > cfg.max) return { passed: false, message: `Too long (${text.length} > ${cfg.max})` };
+        return { passed: true, message: 'Length OK' };
+      }
+      case 'script': {
+        if (!v.validation_code) return { passed: true, message: 'No script' };
+        const fn = new Function('text', 'params', v.validation_code);
+        return fn(text, v.parameters || {});
+      }
+      default:
+        return { passed: true, message: `Skipped (${v.validation_type || 'unknown'})` };
+    }
+  } catch (err) {
+    return { passed: false, message: `Validator error: ${err.message}`, issues: [err.message] };
+  }
+}
+
 const guardsController = {
   async list(req, res, next) {
     try {
       const { search, active, limit = 200, offset = 0 } = req.query;
       let query = `SELECT g.*, e.name as endpoint_name, e.provider as endpoint_provider,
-                          u.full_name as created_by_name
+                          u.full_name as created_by_name,
+                          (SELECT COUNT(*)::int FROM guard_validators gv WHERE gv.guard_id = g.id) as validator_count
                    FROM guards g
                    LEFT JOIN ai_endpoints e ON g.endpoint_id = e.id
                    LEFT JOIN users u ON g.created_by = u.id WHERE 1=1`;
@@ -32,8 +79,9 @@ const guardsController = {
       if (guard.rows.length === 0) return res.status(404).json({ error: 'Guard not found', code: 'NOT_FOUND' });
 
       const validators = await db.query(
-        `SELECT gv.*, v.name as validator_name, v.display_name as validator_display_name,
-                v.hub_uri, v.category_id, vc.name as category_name, v.source, v.validation_type
+        `SELECT v.id, v.name, v.display_name, v.hub_uri, v.category_id, vc.name as category_name,
+                v.source, v.validation_type, v.validation_code, v.parameters,
+                gv.on_fail_action, gv.priority, v.is_installed, v.is_active, v.tags
          FROM guard_validators gv
          JOIN validators v ON gv.validator_id = v.id
          LEFT JOIN validator_categories vc ON v.category_id = vc.id
@@ -170,18 +218,22 @@ const guardsController = {
         [req.params.id]
       );
 
-      // Run each validator (simulated — in production this would call the Guardrails server)
-      const results = validators.rows.map(v => ({
-        validator_id: v.id,
-        name: v.name,
-        display_name: v.display_name,
-        type: v.source,
-        validation_type: v.validation_type,
-        passed: true,
-        message: `${v.display_name}: passed (simulated)`,
-        score: 1.0,
-        metadata: {},
-      }));
+      // Run each validator against the text
+      const results = [];
+      for (const v of validators.rows) {
+        const result = executeValidatorRun(v, text);
+        results.push({
+          validator_id: v.id,
+          name: v.name,
+          display_name: v.display_name,
+          type: v.source,
+          validation_type: v.validation_type,
+          passed: result.passed,
+          message: result.message,
+          issues: result.issues || [],
+          score: result.passed ? 1.0 : 0.0,
+        });
+      }
 
       const allPassed = results.every(r => r.passed);
 
