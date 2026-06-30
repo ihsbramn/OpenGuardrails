@@ -153,14 +153,13 @@ curl -X POST "http://localhost:3000/api/proxy/v1/chat/completions?guard_id=GUARD
 
         <!-- Gateway URL (always visible) -->
         <div v-if="gatewayEnabled" style="margin-top:14px;padding:12px;background:var(--color-bg);border-radius:8px">
-          <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:4px">Gateway Endpoint URL</div>
+          <div style="font-size:12px;color:var(--color-text-dim);margin-bottom:4px">Gateway Base URL</div>
           <div style="display:flex;align-items:center;gap:8px">
             <code style="font-size:14px;color:var(--color-primary-hover);font-family:monospace">{{ gatewayUrl }}</code>
             <button class="btn btn-xs btn-primary" @click="copyGatewayUrl" style="flex-shrink:0;padding:4px 10px">📋 Copy</button>
           </div>
-          <div v-if="gatewayMode" style="margin-top:6px;font-size:12px;color:var(--color-text-dim)">
-            Mode: <span class="badge badge-info">{{ gatewayMode }}</span>
-            &nbsp;| Guards: <span class="badge" style="background:var(--color-primary)">{{ selectedGuards.length }}</span>
+          <div style="margin-top:4px;font-size:11px;color:var(--color-text-dim)">
+            Set <code style="font-size:11px">base_url</code> to this in your OpenAI / Anthropic SDK
           </div>
         </div>
 
@@ -188,7 +187,7 @@ curl -X POST "http://localhost:3000/api/proxy/v1/chat/completions?guard_id=GUARD
 
             <div class="gw-example">
               <div class="gw-example-label">curl</div>
-              <pre><code>curl -X POST "{{ gatewayUrl }}" \
+              <pre><code>curl -X POST "{{ gatewayUrl }}/chat/completions" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello"}]}'</code></pre>
@@ -199,7 +198,7 @@ curl -X POST "http://localhost:3000/api/proxy/v1/chat/completions?guard_id=GUARD
               <pre><code>from openai import OpenAI
 
 client = OpenAI(
-    base_url="{{ gatewayUrl.replace('/chat/completions', '') }}",
+    base_url="{{ gatewayUrl }}",
     api_key="YOUR_API_KEY"
 )
 response = client.chat.completions.create(
@@ -214,7 +213,7 @@ print(response.choices[0].message.content)</code></pre>
               <pre><code>import OpenAI from "openai";
 
 const client = new OpenAI({
-  baseURL: "{{ gatewayUrl.replace('/chat/completions', '') }}",
+  baseURL: "{{ gatewayUrl }}",
   apiKey: "YOUR_API_KEY",
 });
 const resp = await client.chat.completions.create({
@@ -398,7 +397,7 @@ const resp = await client.chat.completions.create({
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
 
@@ -412,14 +411,14 @@ const editingConfig = ref(null);
 const showGuide = ref(false);
 const showGatewayConfig = ref(false);
 const showGwGuide = ref(false);
-const gatewayEnabled = ref(false);
-const gatewayMode = ref('openai');
+const gatewayOpenAIEnabled = ref(false);
+const gatewayAnthropicEnabled = ref(false);
 const selectedGuards = ref([]);
 const allGuards = ref([]);
 const savingGateway = ref(false);
 const activeConfigId = ref(null);
 
-const gatewayUrl = ref('http://localhost:3000/v1/chat/completions');
+const gatewayUrl = ref('http://localhost:3000/v1');
 
 const form = ref({
   name: '', host: '0.0.0.0', port: 8000, log_level: 'info',
@@ -443,8 +442,8 @@ async function load() {
     const active = statusRes.data?.active_config;
     if (active) {
       activeConfigId.value = active.id;
-      gatewayEnabled.value = active.gateway_enabled || false;
-      gatewayMode.value = active.gateway_mode || 'openai';
+      gatewayOpenAIEnabled.value = active.gateway_openai_enabled || false;
+      gatewayAnthropicEnabled.value = active.gateway_anthropic_enabled || false;
       selectedGuards.value = active.gateway_guard_ids || [];
     }
 
@@ -452,7 +451,7 @@ async function load() {
     const host = window.location.hostname;
     const port = statusRes.data?.port || 3000;
     statusDataPort = port;
-    gatewayUrl.value = buildGatewayUrl(host, port, gatewayMode.value);
+    gatewayUrl.value = buildGatewayUrl(host, port);
   } catch (err) {
     console.error(err);
   } finally {
@@ -468,8 +467,8 @@ async function saveGatewaySettings() {
   savingGateway.value = true;
   try {
     await api.put(`/server-configs/${activeConfigId.value}`, {
-      gateway_enabled: gatewayEnabled.value,
-      gateway_mode: gatewayMode.value,
+      gateway_openai_enabled: gatewayOpenAIEnabled.value,
+      gateway_anthropic_enabled: gatewayAnthropicEnabled.value,
       gateway_guard_ids: selectedGuards.value,
     });
   } catch (err) {
@@ -478,8 +477,8 @@ async function saveGatewaySettings() {
     const { data } = await api.get('/server-configs/status');
     const a = data.active_config;
     if (a) {
-      gatewayEnabled.value = a.gateway_enabled || false;
-      gatewayMode.value = a.gateway_mode || 'openai';
+      gatewayOpenAIEnabled.value = a.gateway_openai_enabled || false;
+      gatewayAnthropicEnabled.value = a.gateway_anthropic_enabled || false;
       selectedGuards.value = a.gateway_guard_ids || [];
     }
   } finally {
@@ -546,16 +545,9 @@ function formatDate(d) {
   return d ? new Date(d).toLocaleString() : '';
 }
 
-function buildGatewayUrl(host, port, mode) {
-  const path = mode === 'anthropic' ? '/v1/messages' : '/v1/chat/completions';
-  return `http://${host}:${port}${path}`;
+function buildGatewayUrl(host, port) {
+  return `http://${host}:${port}/v1`;
 }
-
-watch(gatewayMode, (mode) => {
-  const host = window.location.hostname;
-  const port = statusDataPort || 3000;
-  gatewayUrl.value = buildGatewayUrl(host, port, mode);
-});
 
 let statusDataPort = 3000;
 

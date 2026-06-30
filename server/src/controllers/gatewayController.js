@@ -175,8 +175,12 @@ async function handleGatewayRequest(req, res, next, mode) {
     }
     const gwConfig = configRes.rows[0];
 
-    if (!gwConfig.gateway_enabled) {
-      return res.status(503).json({ error: 'Gateway is not enabled. Enable it in Server Config.', code: 'GATEWAY_DISABLED' });
+    // Check per-mode toggle
+    if (mode === 'openai' && !gwConfig.gateway_openai_enabled) {
+      return res.status(503).json({ error: 'OpenAI-compatible gateway is not enabled. Enable it in Server Config.', code: 'GATEWAY_OPENAI_DISABLED' });
+    }
+    if (mode === 'anthropic' && !gwConfig.gateway_anthropic_enabled) {
+      return res.status(503).json({ error: 'Anthropic-compatible gateway is not enabled. Enable it in Server Config.', code: 'GATEWAY_ANTHROPIC_DISABLED' });
     }
 
     const guardIds = gwConfig.gateway_guard_ids || [];

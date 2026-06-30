@@ -16,7 +16,7 @@ const serverConfigController = {
     try {
       const { name, host, port, is_ssl, ssl_cert_path, ssl_key_path, log_level,
               max_request_size_mb, request_timeout_seconds, enable_cors, cors_origins, config_file_path, is_active,
-              gateway_enabled, gateway_mode, gateway_guard_ids } = req.body;
+              gateway_openai_enabled, gateway_anthropic_enabled, gateway_guard_ids } = req.body;
 
       const v = validate([
         { field: 'name', value: name, rules: [{ required: true }, { minLength: 2 }] },
@@ -24,19 +24,18 @@ const serverConfigController = {
         { field: 'log_level', value: log_level, rules: [{ oneOf: ['debug', 'info', 'warning', 'error'] }] },
         { field: 'max_request_size_mb', value: max_request_size_mb, rules: [{ custom: v => (v && v < 1) ? '"max_request_size_mb" must be positive' : null }] },
         { field: 'request_timeout_seconds', value: request_timeout_seconds, rules: [{ custom: v => (v && v < 1) ? '"request_timeout_seconds" must be positive' : null }] },
-        { field: 'gateway_mode', value: gateway_mode, rules: [{ oneOf: ['openai', 'anthropic'] }] },
       ]);
       if (v) return res.status(400).json(v.toJSON());
 
       const result = await db.query(
         `INSERT INTO server_configs (name, host, port, is_ssl, ssl_cert_path, ssl_key_path, log_level,
            max_request_size_mb, request_timeout_seconds, enable_cors, cors_origins, config_file_path, is_active,
-           gateway_enabled, gateway_mode, gateway_guard_ids)
+           gateway_openai_enabled, gateway_anthropic_enabled, gateway_guard_ids)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
         [name, host||'0.0.0.0', port||8000, is_ssl||false, ssl_cert_path||null, ssl_key_path||null,
          log_level||'info', max_request_size_mb||10, request_timeout_seconds||30,
          enable_cors||false, JSON.stringify(cors_origins||['*']), config_file_path||null, is_active||false,
-         gateway_enabled||false, gateway_mode||'openai', gateway_guard_ids||null]
+         gateway_openai_enabled||false, gateway_anthropic_enabled||false, gateway_guard_ids||null]
       );
       res.status(201).json(result.rows[0]);
     } catch(e) {
@@ -47,7 +46,7 @@ const serverConfigController = {
 
   async update(req, res, next) {
     try {
-      const fields = ['name','host','port','is_ssl','ssl_cert_path','ssl_key_path','log_level','max_request_size_mb','request_timeout_seconds','enable_cors','config_file_path','is_active','gateway_enabled','gateway_mode'];
+      const fields = ['name','host','port','is_ssl','ssl_cert_path','ssl_key_path','log_level','max_request_size_mb','request_timeout_seconds','enable_cors','config_file_path','is_active','gateway_openai_enabled','gateway_anthropic_enabled'];
       const setClauses = [];
       const params = [];
       let i = 1;
