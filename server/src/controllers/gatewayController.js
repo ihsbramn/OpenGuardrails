@@ -117,7 +117,12 @@ function executeValidator(v, text) {
 /** Extract text from an OpenAI-compatible response */
 function extractResponseText(body) {
   if (body.choices && Array.isArray(body.choices)) {
-    return body.choices.map(c => c.message?.content || c.text || '').join('\n');
+    return body.choices.map(c => {
+      const parts = [];
+      if (c.message?.content) parts.push(c.message.content);
+      if (c.message?.reasoning_content) parts.push(c.message.reasoning_content);
+      return parts.join('\n');
+    }).join('\n');
   }
   return '';
 }
