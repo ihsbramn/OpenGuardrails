@@ -16,7 +16,7 @@
           <div class="stat-label">Total Guards</div>
         </div>
         <div class="card stat-card stat-green">
-          <div class="stat-value">{{ stats.active_guards }}</div>
+          <div class="stat-value">{{ stats.active }}</div>
           <div class="stat-label">Active</div>
         </div>
         <div class="card stat-card">
