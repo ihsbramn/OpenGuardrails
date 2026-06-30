@@ -48,7 +48,7 @@ services:
 
   # ---- API Server ----
   server:
-    image: docker.io/ihsbramn/openguardrails-server:0.2.0-alpha
+    image: docker.io/ihsbramn/openguardrails-server:0.2.1-alpha
     container_name: og-server
     restart: unless-stopped
     depends_on:
@@ -73,7 +73,7 @@ services:
 
   # ---- Vue Client ----
   client:
-    image: docker.io/ihsbramn/openguardrails-client:0.2.0-alpha
+    image: docker.io/ihsbramn/openguardrails-client:0.2.1-alpha
     container_name: og-client
     restart: unless-stopped
     depends_on:
