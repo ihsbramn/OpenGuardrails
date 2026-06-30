@@ -382,6 +382,9 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
+import { useModal } from '../utils/modals';
+
+const { showNotification, showConfirm } = useModal();
 
 const auth = useAuthStore();
 const tab = ref('hub');
@@ -548,7 +551,7 @@ async function saveCustomValidator() {
     closeCustomForm();
     await Promise.all([load(), loadMeta()]);
   } catch (err) {
-    alert(err.response?.data?.error || 'Save failed');
+    await showNotification('Save Failed', err.response?.data?.error || 'Save failed', 'error');
   } finally {
     saving.value = false;
   }
@@ -557,12 +560,11 @@ async function saveCustomValidator() {
 async function installValidator(v) {
   try {
     const { data } = await api.post(`/validators/${v.id}/install`);
-    // Show message with custom copy info
-    alert(data.message || `Validator "${v.display_name}" installed!`);
+    await showNotification('Installed', data.message || `Validator "${v.display_name}" installed!`, 'success');
     // Reload to get updated is_installed and custom_copy_id
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Install failed');
+    await showNotification('Install Failed', err.response?.data?.error || 'Install failed', 'error');
   }
 }
 
@@ -591,12 +593,13 @@ async function editInstalledValidator(v) {
 }
 
 async function deleteValidator(v) {
-  if (!confirm(`Delete validator "${v.display_name}"?`)) return;
+  const ok = await showConfirm('Delete Validator', `Delete validator "${v.display_name}"?`, 'Delete');
+  if (!ok) return;
   try {
     await api.delete(`/validators/${v.id}`);
     await Promise.all([load(), loadMeta()]);
   } catch (err) {
-    alert(err.response?.data?.error || 'Delete failed');
+    await showNotification('Delete Failed', err.response?.data?.error || 'Delete failed', 'error');
   }
 }
 

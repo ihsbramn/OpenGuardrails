@@ -100,6 +100,9 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../utils/api';
+import { useModal } from '../utils/modals';
+
+const { showNotification, showConfirm } = useModal();
 
 const users = ref([]);
 const roles = ref([]);
@@ -160,19 +163,20 @@ async function saveUser() {
     closeModal();
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Save failed');
+    await showNotification('Save Failed', err.response?.data?.error || 'Save failed', 'error');
   } finally {
     saving.value = false;
   }
 }
 
 async function deleteUser(u) {
-  if (!confirm(`Delete user "${u.full_name}"?`)) return;
+  const ok = await showConfirm('Delete User', `Delete user "${u.full_name}"? This action cannot be undone.`, 'Delete');
+  if (!ok) return;
   try {
     await api.delete(`/users/${u.id}`);
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Delete failed');
+    await showNotification('Delete Failed', err.response?.data?.error || 'Delete failed', 'error');
   }
 }
 

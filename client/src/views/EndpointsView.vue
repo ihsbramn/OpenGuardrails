@@ -162,6 +162,9 @@
 import { ref, onMounted } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
+import { useModal } from '../utils/modals';
+
+const { showNotification, showConfirm } = useModal();
 
 const auth = useAuthStore();
 const endpoints = ref([]);
@@ -226,7 +229,7 @@ async function saveEndpoint() {
     closeModal();
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Save failed');
+    await showNotification('Save Failed', err.response?.data?.error || 'Save failed', 'error');
   } finally {
     saving.value = false;
   }
@@ -252,18 +255,19 @@ async function testEndpoint(ep) {
 }
 
 async function deleteEndpoint(ep) {
-  if (!confirm(`Delete endpoint "${ep.name}"?`)) return;
+  const ok = await showConfirm('Delete Endpoint', `Delete endpoint "${ep.name}"?`, 'Delete');
+  if (!ok) return;
   try {
     await api.delete(`/endpoints/${ep.id}`);
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Delete failed');
+    await showNotification('Delete Failed', err.response?.data?.error || 'Delete failed', 'error');
   }
 }
 
 async function testModels() {
   if (!form.value.base_url) {
-    alert('Enter a Base URL first');
+    await showNotification('Missing URL', 'Enter a Base URL first', 'warning');
     return;
   }
   testingModels.value = true;

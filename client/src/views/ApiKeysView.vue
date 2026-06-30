@@ -103,6 +103,9 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import api from '../utils/api';
+import { useModal } from '../utils/modals';
+
+const { showNotification, showConfirm } = useModal();
 
 const keys = ref([]);
 const loading = ref(true);
@@ -135,35 +138,39 @@ async function generateKey() {
     form.value = { name: '', permissions: ['read'] };
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Generation failed');
+    await showNotification('Generation Failed', err.response?.data?.error || 'Generation failed', 'error');
   } finally {
     saving.value = false;
   }
 }
 
 async function revokeKey(key) {
-  if (!confirm(`Revoke API key "${key.name}"?`)) return;
+  const ok = await showConfirm('Revoke API Key', `Revoke API key "${key.name}"? This action can be undone by generating a new key.`, 'Revoke');
+  if (!ok) return;
   try {
     await api.post(`/api-keys/${key.id}/revoke`);
     await load();
+    await showNotification('Key Revoked', `API key "${key.name}" has been revoked.`, 'success');
   } catch (err) {
-    alert(err.response?.data?.error || 'Revoke failed');
+    await showNotification('Revoke Failed', err.response?.data?.error || 'Revoke failed', 'error');
   }
 }
 
 async function deleteKey(key) {
-  if (!confirm(`Permanently delete revoked key "${key.name}"? This cannot be undone.`)) return;
+  const ok = await showConfirm('Delete API Key', `Permanently delete revoked key "${key.name}"? This cannot be undone.`, 'Delete');
+  if (!ok) return;
   try {
     await api.delete(`/api-keys/${key.id}`);
     await load();
   } catch (err) {
-    alert(err.response?.data?.help || err.response?.data?.error || 'Delete failed');
+    await showNotification('Delete Failed', err.response?.data?.help || err.response?.data?.error || 'Delete failed', 'error');
   }
 }
 
 function copyKey() {
-  navigator.clipboard.writeText(newKey.value.api_key);
-  alert('API key copied to clipboard!');
+  navigator.clipboard.writeText(newKey.value.api_key).then(() => {
+    showNotification('Copied', 'API key copied to clipboard!', 'success');
+  });
 }
 
 function formatDate(d) {

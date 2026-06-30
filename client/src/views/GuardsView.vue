@@ -190,6 +190,9 @@
 import { ref, onMounted } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
+import { useModal } from '../utils/modals';
+
+const { showNotification, showConfirm } = useModal();
 
 const auth = useAuthStore();
 const guards = ref([]);
@@ -301,25 +304,26 @@ async function saveGuard() {
     closeModal();
     await Promise.all([load(), loadMeta()]);
   } catch (err) {
-    alert(err.response?.data?.error || 'Save failed');
+    await showNotification('Save Failed', err.response?.data?.error || 'Save failed', 'error');
   } finally {
     saving.value = false;
   }
 }
 
 async function deleteGuard(g) {
-  if (!confirm(`Delete guard "${g.name}"?`)) return;
+  const ok = await showConfirm('Delete Guard', `Delete guard "${g.name}"?`, 'Delete');
+  if (!ok) return;
   try {
     await api.delete(`/guards/${g.id}`);
     await Promise.all([load(), loadMeta()]);
   } catch (err) {
-    alert(err.response?.data?.error || 'Delete failed');
+    await showNotification('Delete Failed', err.response?.data?.error || 'Delete failed', 'error');
   }
 }
 
 function copyId(id) {
   navigator.clipboard.writeText(id).then(() => {
-    alert('Guard ID copied to clipboard!');
+    showNotification('Copied', 'Guard ID copied to clipboard!', 'success');
   }).catch(() => {
     prompt('Copy this Guard ID:', id);
   });

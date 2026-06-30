@@ -418,6 +418,9 @@ const resp = await client.chat.completions.create({
 import { ref, computed, onMounted } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
+import { useModal } from '../utils/modals';
+
+const { showNotification, showConfirm } = useModal();
 
 const auth = useAuthStore();
 const configs = ref([]);
@@ -483,7 +486,7 @@ async function load() {
 
 async function saveGatewaySettings() {
   if (!activeConfigId.value) {
-    alert('No active server configuration. Create one first.');
+    await showNotification('No Configuration', 'No active server configuration. Create one first.', 'warning');
     return;
   }
   savingGateway.value = true;
@@ -494,7 +497,7 @@ async function saveGatewaySettings() {
       gateway_guard_ids: selectedGuards.value,
     });
   } catch (err) {
-    alert(err.response?.data?.error || 'Failed to save gateway settings');
+    await showNotification('Save Failed', err.response?.data?.error || 'Failed to save gateway settings', 'error');
     // Revert
     const { data } = await api.get('/server-configs/status');
     const a = data.active_config;
@@ -509,7 +512,7 @@ async function saveGatewaySettings() {
 }
 
 function copyGatewayUrl() {
-  navigator.clipboard.writeText(gatewayUrl.value).then(() => alert('Gateway URL copied!'));
+  navigator.clipboard.writeText(gatewayUrl.value).then(() => showNotification('Copied', 'Gateway URL copied!', 'success'));
 }
 
 function resetForm() {
@@ -547,19 +550,20 @@ async function saveConfig() {
     closeModal();
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Save failed');
+    await showNotification('Save Failed', err.response?.data?.error || 'Save failed', 'error');
   } finally {
     saving.value = false;
   }
 }
 
 async function deleteConfig(cfg) {
-  if (!confirm(`Delete config "${cfg.name}"?`)) return;
+  const ok = await showConfirm('Delete Config', `Delete config "${cfg.name}"?`, 'Delete');
+  if (!ok) return;
   try {
     await api.delete(`/server-configs/${cfg.id}`);
     await load();
   } catch (err) {
-    alert(err.response?.data?.error || 'Delete failed');
+    await showNotification('Delete Failed', err.response?.data?.error || 'Delete failed', 'error');
   }
 }
 

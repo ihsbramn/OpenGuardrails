@@ -154,6 +154,9 @@ response = client.chat.completions.create(
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../utils/api';
+import { useModal } from '../utils/modals';
+
+const { showNotification } = useModal();
 
 const route = useRoute();
 const guard = ref({ validators: [] });
@@ -184,7 +187,7 @@ async function runValidation() {
     validationResult.value = data;
     showValidate.value = false;
   } catch (err) {
-    alert(err.response?.data?.error || 'Validation failed');
+    await showNotification('Validation Failed', err.response?.data?.error || 'Validation failed', 'error');
   } finally {
     validating.value = false;
   }
@@ -192,11 +195,11 @@ async function runValidation() {
 
 function copyProxyUrl() {
   const url = `POST /api/proxy/v1/chat/completions?guard_id=${guard.value.id}`;
-  navigator.clipboard.writeText(url).then(() => alert('Proxy URL copied!'));
+  navigator.clipboard.writeText(url).then(() => showNotification('Copied', 'Proxy URL copied!', 'success'));
 }
 
 function copyGuardId() {
-  navigator.clipboard.writeText(guard.value.id).then(() => alert('Guard ID copied!'));
+  navigator.clipboard.writeText(guard.value.id).then(() => showNotification('Copied', 'Guard ID copied!', 'success'));
 }
 
 function formatDate(d) {
