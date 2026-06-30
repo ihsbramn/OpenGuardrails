@@ -398,7 +398,7 @@ const resp = await client.chat.completions.create({
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import api from '../utils/api';
 import { useAuthStore } from '../stores/auth';
 
@@ -419,7 +419,7 @@ const allGuards = ref([]);
 const savingGateway = ref(false);
 const activeConfigId = ref(null);
 
-const gatewayUrl = ref('http://localhost:3000/api/v1/chat/completions');
+const gatewayUrl = ref('http://localhost:3000/v1/chat/completions');
 
 const form = ref({
   name: '', host: '0.0.0.0', port: 8000, log_level: 'info',
@@ -451,7 +451,8 @@ async function load() {
     // Build gateway URL
     const host = window.location.hostname;
     const port = statusRes.data?.port || 3000;
-    gatewayUrl.value = `http://${host}:${port}/api/v1/chat/completions`;
+    statusDataPort = port;
+    gatewayUrl.value = buildGatewayUrl(host, port, gatewayMode.value);
   } catch (err) {
     console.error(err);
   } finally {
@@ -544,6 +545,19 @@ async function deleteConfig(cfg) {
 function formatDate(d) {
   return d ? new Date(d).toLocaleString() : '';
 }
+
+function buildGatewayUrl(host, port, mode) {
+  const path = mode === 'anthropic' ? '/v1/messages' : '/v1/chat/completions';
+  return `http://${host}:${port}${path}`;
+}
+
+watch(gatewayMode, (mode) => {
+  const host = window.location.hostname;
+  const port = statusDataPort || 3000;
+  gatewayUrl.value = buildGatewayUrl(host, port, mode);
+});
+
+let statusDataPort = 3000;
 
 onMounted(load);
 </script>

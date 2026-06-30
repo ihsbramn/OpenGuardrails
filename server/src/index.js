@@ -65,6 +65,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/proxy', proxyRoutes);
 app.use('/api', gatewayRoutes);
+// Also mount gateway at root for native OpenAI/Anthropic SDK compatibility
+app.use('/', gatewayRoutes);
 
 // ---- 404 ----
 app.use((req, res) => {
