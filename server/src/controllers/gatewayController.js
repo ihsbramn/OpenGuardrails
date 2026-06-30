@@ -224,18 +224,12 @@ async function handleGatewayRequest(req, res, next, mode) {
       return res.status(503).json({ error: 'No active AI endpoint with API key found in gateway guards. Configure an endpoint on each guard.', code: 'GATEWAY_NO_ENDPOINT' });
     }
 
-    // 3. Determine forwarding URL based on gateway mode
-    const gwMode = gwConfig.gateway_mode || 'openai';
+    // 3. Forward request to AI provider.
+    // Always forward in OpenAI format to the endpoint — the gateway accepts
+    // both input formats but the upstream endpoint is configured separately.
     const requestModel = req.body.model || activeEndpoint.default_model || 'gpt-4o';
-
-    let targetUrl, forwardBody;
-    if (gwMode === 'anthropic') {
-      targetUrl = `${activeEndpoint.base_url}/messages`;
-      forwardBody = buildAnthropicRequest(req.body, requestModel);
-    } else {
-      targetUrl = `${activeEndpoint.base_url}/chat/completions`;
-      forwardBody = req.body;
-    }
+    const targetUrl = `${activeEndpoint.base_url}/chat/completions`;
+    const forwardBody = req.body;
 
     // 4. Forward request to AI provider
     const controller = new AbortController();
@@ -249,11 +243,9 @@ async function handleGatewayRequest(req, res, next, mode) {
       };
       Object.assign(fwdHeaders, activeEndpoint.headers);
 
-      if (gwConfig.gateway_mode === 'anthropic') {
-        fwdHeaders['x-api-key'] = activeEndpoint.api_key;
-        fwdHeaders['anthropic-version'] = '2023-06-01';
-        delete fwdHeaders['Authorization'];
-      }
+      // Always use Bearer auth for OpenAI-compatible forwarding
+      // (Anthropic-native endpoints use x-api-key, but gateway always
+      // forwards to the endpoint's native protocol)
 
       providerResp = await fetch(targetUrl, {
         method: 'POST',
@@ -302,12 +294,8 @@ async function handleGatewayRequest(req, res, next, mode) {
       return res.status(502).json({ error: 'Invalid upstream response', code: 'PARSE_ERROR' });
     }
 
-    let openaiResponse;
-    if (gwMode === 'anthropic') {
-      openaiResponse = toOpenAIResponse(responseBody, requestModel);
-    } else {
-      openaiResponse = responseBody;
-    }
+    // Always use OpenAI response format (upstream endpoint is OpenAI-compatible)
+    const openaiResponse = responseBody;
 
     // 6. Run ALL gateway guards' validators on the response
     const extractedText = extractResponseText(openaiResponse);
